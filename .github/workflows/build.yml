@@ -183,10 +183,14 @@ jobs:
           sed -i '1i #include <linux/err.h>\n#include <linux/syscalls.h>' "$SU_MOUNT"
           sed -i 's/ns_get_path(&ns_path, pid1_task, &mntns_operations)/PTR_ERR_OR_ZERO(ns_get_path(\&ns_path, pid1_task, \&mntns_operations))/g' "$SU_MOUNT"
 
-          # 14. حل مشکل Symbol Resolver (کستینگ عدد به پوینتر تابع)
+          # 14. حل مشکل Symbol Resolver
           SYMBOL_RESOLVER="drivers/KernelSU-Next/kernel/infra/symbol_resolver.c"
-          # هرجا مقداری از find_kernel_symbol_exact دریافت می‌شود، آن را به پوینتر (void *) تبدیل می‌کنیم
           sed -i 's/= find_kernel_symbol_exact/= (void *)find_kernel_symbol_exact/g' "$SYMBOL_RESOLVER"
+          
+          # 15. حل مشکل تغییر آرگومان‌های تابع kernel_read در کرنل 4.4
+          APK_SIGN="drivers/KernelSU-Next/kernel/manager/apk_sign.c"
+          sed -i 's/kernel_read(/ksu_kernel_read(/g' "$APK_SIGN"
+          sed -i '1i static inline int ksu_kernel_read(struct file *file, void *buf, size_t count, loff_t *pos) { int ret = kernel_read(file, *pos, (char *)buf, count); if (ret > 0) *pos += ret; return ret; }' "$APK_SIGN"
 
           echo "Deep Patching completed successfully!"
 
