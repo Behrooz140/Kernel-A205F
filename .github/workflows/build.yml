@@ -187,7 +187,7 @@ jobs:
           SYMBOL_RESOLVER="drivers/KernelSU-Next/kernel/infra/symbol_resolver.c"
           sed -i 's/= find_kernel_symbol_exact/= (void *)find_kernel_symbol_exact/g' "$SYMBOL_RESOLVER"
           
-          # 15. حل مشکل تغییر آرگومان‌های تابع kernel_read در کرنل 4.4 با تزریق امن
+          # 15. حل مشکل تغییر آرگومان‌های تابع kernel_read در کرنل 4.4
           APK_SIGN="drivers/KernelSU-Next/kernel/manager/apk_sign.c"
           sed -i 's/kernel_read(/ksu_kernel_read(/g' "$APK_SIGN"
           cat <<EOF > temp_apk.c
@@ -209,7 +209,7 @@ jobs:
           void ksu_fsnotify_exit(void) {}
           EOF
           
-          # 17. حل مشکل Throne Tracker (استفاده از همون تابع ریدِ تزریقی و حذف آرگومان سوم هَش)
+          # 17. حل مشکل Throne Tracker
           THRONE="drivers/KernelSU-Next/kernel/manager/throne_tracker.c"
           sed -i 's/full_name_hash(NULL, /full_name_hash(/g' "$THRONE"
           sed -i 's/kernel_read(/ksu_kernel_read(/g' "$THRONE"
@@ -224,6 +224,34 @@ jobs:
           EOF
           cat "$THRONE" >> temp_throne.c
           mv temp_throne.c "$THRONE"
+
+          # 18. حل مشکلات لیست دسترسی‌ها (Allowlist)
+          ALLOWLIST="drivers/KernelSU-Next/kernel/policy/allowlist.c"
+          # ترجمه ماکروی fallthrough به زبان کامپایلرهای قدیمی و حل مشکل task_work_add
+          sed -i 's/fallthrough;/ /g' "$ALLOWLIST"
+          sed -i 's/task_work_add(tsk, cb, TWA_RESUME)/task_work_add(tsk, cb, true)/g' "$ALLOWLIST"
+          # ترجمه strscpy_pad به تابع قدیمی strncpy
+          sed -i 's/strscpy_pad/strncpy/g' "$ALLOWLIST"
+          # جایگزینی توابع فایل‌سیستم
+          sed -i 's/kernel_read(/ksu_kernel_read(/g' "$ALLOWLIST"
+          sed -i 's/kernel_write(/ksu_kernel_write(/g' "$ALLOWLIST"
+          # تزریق توابع واسطه
+          cat <<EOF > temp_allowlist.c
+          #include <linux/fs.h>
+          #include <linux/types.h>
+          static inline int ksu_kernel_read(struct file *file, void *buf, size_t count, loff_t *pos) {
+              int ret = kernel_read(file, *pos, (char *)buf, count);
+              if (ret > 0) *pos += ret;
+              return ret;
+          }
+          static inline ssize_t ksu_kernel_write(struct file *file, const void *buf, size_t count, loff_t *pos) {
+              ssize_t ret = kernel_write(file, (const char *)buf, count, *pos);
+              if (ret > 0) *pos += ret;
+              return ret;
+          }
+          EOF
+          cat "$ALLOWLIST" >> temp_allowlist.c
+          mv temp_allowlist.c "$ALLOWLIST"
 
           echo "Deep Patching completed successfully!"
 
