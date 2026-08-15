@@ -76,8 +76,11 @@ jobs:
           # 3. تعریف دستیِ نوع داده syscall_fn_t که در کرنل 4.4 وجود ندارد
           sed -i '1i typedef void* syscall_fn_t;' drivers/KernelSU-Next/kernel/hook/syscall_hook.h
           
-          # 4. حل مشکل فایل هدر: جایگزینی فایل مدرن با فایل سازگار در کرنل 4.4
+          # 4. حل مشکل فایل هدر compiler_types.h
           find drivers/KernelSU-Next/kernel -type f -name "*.[ch]" -exec sed -i 's/linux\/compiler_types.h/linux\/compiler.h/g' {} +
+          
+          # 5. حل مشکل فایل هدر pgtable.h: تغییر مسیر به نسخه سازگار در کرنل قدیمی
+          find drivers/KernelSU-Next/kernel -type f -name "*.[ch]" -exec sed -i 's/linux\/pgtable.h/asm\/pgtable.h/g' {} +
           
           echo "Patching completed successfully!"
 
