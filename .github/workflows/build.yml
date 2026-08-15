@@ -187,10 +187,22 @@ jobs:
           SYMBOL_RESOLVER="drivers/KernelSU-Next/kernel/infra/symbol_resolver.c"
           sed -i 's/= find_kernel_symbol_exact/= (void *)find_kernel_symbol_exact/g' "$SYMBOL_RESOLVER"
           
-          # 15. حل مشکل تغییر آرگومان‌های تابع kernel_read در کرنل 4.4
+          # 15. حل مشکل تغییر آرگومان‌های تابع kernel_read در کرنل 4.4 با تزریق امن
           APK_SIGN="drivers/KernelSU-Next/kernel/manager/apk_sign.c"
+          # ابتدا کلمات را در کد جایگزین می‌کنیم تا تابع ما جایگزین نشود
           sed -i 's/kernel_read(/ksu_kernel_read(/g' "$APK_SIGN"
-          sed -i '1i static inline int ksu_kernel_read(struct file *file, void *buf, size_t count, loff_t *pos) { int ret = kernel_read(file, *pos, (char *)buf, count); if (ret > 0) *pos += ret; return ret; }' "$APK_SIGN"
+          # سپس تابع جدید را به همراه هدرهای ضروری آن با cat تزریق می‌کنیم
+          cat <<EOF > temp_apk.c
+          #include <linux/fs.h>
+          #include <linux/types.h>
+          static inline int ksu_kernel_read(struct file *file, void *buf, size_t count, loff_t *pos) {
+              int ret = kernel_read(file, *pos, (char *)buf, count);
+              if (ret > 0) *pos += ret;
+              return ret;
+          }
+          EOF
+          cat "$APK_SIGN" >> temp_apk.c
+          mv temp_apk.c "$APK_SIGN"
 
           echo "Deep Patching completed successfully!"
 
