@@ -44,6 +44,7 @@ jobs:
             unzip \
             zip
 
+      
       - name: Setup KernelSU Next (Legacy Integration)
         shell: bash
         run: |
@@ -96,6 +97,11 @@ jobs:
           void ksu_lsm_hook(void) {}
           void ksu_lsm_unhook(void) {}
           EOF
+          
+          # 8. حل مشکلات Syscall Event Bridge (حذف ماکروی ناشناخته، حذف فیلتر آدرس، اضافه کردن کتابخانه uaccess)
+          find drivers/KernelSU-Next/kernel -type f -name "*.[ch]" -exec sed -i 's/__nocfi //g' {} +
+          find drivers/KernelSU-Next/kernel -type f -name "*.[ch]" -exec sed -i 's/untagged_addr//g' {} +
+          sed -i '1i #include <linux/uaccess.h>' drivers/KernelSU-Next/kernel/hook/syscall_event_bridge.c
           
           echo "Deep Patching completed successfully!"
 
