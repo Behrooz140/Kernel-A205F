@@ -51,13 +51,11 @@ jobs:
           echo "Integrating KernelSU Next Legacy Driver"
           echo "========================================"
 
-          # کلون کردن سورس مستقیم در پوشه drivers به عنوان kernelsu-next
-          git clone https://github.com/KernelSU-Next/KernelSU-Next drivers/kernelsu-next -b next --depth 1
+          # کلون کردن سورس مستقیم در پوشه drivers به عنوان kernelsu-next (حذف -b next)
+          git clone https://github.com/KernelSU-Next/KernelSU-Next drivers/kernelsu-next --depth 1
 
           # ویرایش فایل‌های Kconfig و Makefile اصلی برای ادغام درایور
-          # اضافه کردن سورس درایور به منوی کانفیگ قبل از 'endmenu' در drivers/Kconfig
           sed -i '/endmenu/s//endmenu\n\nsource "drivers\/kernelsu-next\/Kconfig"/' drivers/Kconfig
-          # اضافه کردن سورس درایور به فرآیند ساخت در drivers/Makefile
           echo 'obj-y += kernelsu-next/' >> drivers/Makefile
 
           # بررسی اضافه شدن موفقیت‌آمیز فایل‌ها و تنظیمات
@@ -65,6 +63,7 @@ jobs:
           test -f drivers/kernelsu-next/Makefile
           grep "drivers/kernelsu-next" drivers/Kconfig
           grep "kernelsu-next" drivers/Makefile
+
 
       - name: Verify kernel source
         shell: bash
