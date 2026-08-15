@@ -51,17 +51,33 @@ jobs:
           echo "Integrating KernelSU Next (Full Repo)"
           echo "========================================"
 
-          # پاک کردن کدهای ناقص قبلی برای جلوگیری از تداخل
-          rm -rf drivers/kernelsu-next || true
+          # پاک کردن کدهای ناقص قبلی
+          rm -rf drivers/KernelSU-Next || true
           rm -rf ksu-temp || true
 
-          # کلون کردن "کل" مخزن در مسیر درایورها
+          # کلون کردن مخزن
           git clone https://github.com/KernelSU-Next/KernelSU-Next.git drivers/KernelSU-Next --depth 1
 
-          # معرفی پوشه کرنل (از داخل مخزن دانلود شده) به سیستم بیلد
-          sed -i '/kernelsu-next/d' drivers/Makefile || true
+          # معرفی پوشه به بیلد سیستم
           sed -i '/KernelSU-Next/d' drivers/Makefile || true
           echo 'obj-y += KernelSU-Next/kernel/' >> drivers/Makefile
+
+          echo "========================================"
+          echo "Patching KernelSU Next for Legacy GCC 4.9 & Kernel 4.4"
+          echo "========================================"
+          
+          # 1. حذف فلگ‌های کامپایلری که توسط GCC 4.9 پشتیبانی نمی‌شوند
+          find drivers/KernelSU-Next/kernel -type f -name "Makefile" -exec sed -i 's/-Wno-gcc-compat//g' {} +
+          find drivers/KernelSU-Next/kernel -type f -name "Makefile" -exec sed -i 's/-Wno-int-conversion//g' {} +
+          
+          # 2. جلوگیری از تبدیل اخطارها به ارور کشنده (حذف -Werror)
+          find drivers/KernelSU-Next/kernel -type f -name "Makefile" -exec sed -i 's/-Werror//g' {} +
+          
+          # 3. تعریف دستیِ نوع داده syscall_fn_t که در کرنل 4.4 وجود ندارد
+          # ما این تعریف را به بالاترین خط فایل هدر مربوطه تزریق می‌کنیم
+          sed -i '1i typedef void* syscall_fn_t;' drivers/KernelSU-Next/kernel/hook/syscall_hook.h
+          
+          echo "Patching completed successfully!"
 
       - name: Verify kernel source
         shell: bash
