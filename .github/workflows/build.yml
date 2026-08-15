@@ -81,6 +81,7 @@ jobs:
           find drivers/KernelSU-Next/kernel -type f -name "*.[ch]" -exec sed -i 's/linux\/sched\/task_stack.h/linux\/sched.h/g' {} +
           find drivers/KernelSU-Next/kernel -type f -name "*.[ch]" -exec sed -i 's/linux\/sched\/signal.h/linux\/sched.h/g' {} +
           find drivers/KernelSU-Next/kernel -type f -name "*.[ch]" -exec sed -i 's/linux\/sched\/task.h/linux\/sched.h/g' {} +
+          find drivers/KernelSU-Next/kernel -type f -name "*.[ch]" -exec sed -i 's/linux\/sched\/user.h/linux\/sched.h/g' {} +
           find drivers/KernelSU-Next/kernel -type f -name "*.[ch]" -exec sed -i 's/uapi\/linux\/mount.h/linux\/mount.h/g' {} +
           
           # 4. ترجمه توابع مدرن به توابع معادل در کرنل 4.4
@@ -227,15 +228,11 @@ jobs:
 
           # 18. حل مشکلات لیست دسترسی‌ها (Allowlist)
           ALLOWLIST="drivers/KernelSU-Next/kernel/policy/allowlist.c"
-          # ترجمه ماکروی fallthrough به زبان کامپایلرهای قدیمی و حل مشکل task_work_add
           sed -i 's/fallthrough;/ /g' "$ALLOWLIST"
           sed -i 's/task_work_add(tsk, cb, TWA_RESUME)/task_work_add(tsk, cb, true)/g' "$ALLOWLIST"
-          # ترجمه strscpy_pad به تابع قدیمی strncpy
           sed -i 's/strscpy_pad/strncpy/g' "$ALLOWLIST"
-          # جایگزینی توابع فایل‌سیستم
           sed -i 's/kernel_read(/ksu_kernel_read(/g' "$ALLOWLIST"
           sed -i 's/kernel_write(/ksu_kernel_write(/g' "$ALLOWLIST"
-          # تزریق توابع واسطه
           cat <<EOF > temp_allowlist.c
           #include <linux/fs.h>
           #include <linux/types.h>
