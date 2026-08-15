@@ -72,10 +72,10 @@ jobs:
           find drivers/KernelSU-Next/kernel -type f \( -name "Makefile" -o -name "Kbuild" \) -exec sed -i 's/-Werror//g' {} +
           echo 'ccflags-y += -Wno-error -Wno-undef -Wno-implicit-function-declaration' >> drivers/KernelSU-Next/kernel/Makefile
           
-          # 2. تعریف صحیح syscall_fn_t به عنوان یک اشاره‌گر تابع قابل اجرا
+          # 2. تعریف صحیح syscall_fn_t
           sed -i '1i typedef long (*syscall_fn_t)();' drivers/KernelSU-Next/kernel/hook/syscall_hook.h
           
-          # 3. اصلاح مسیر فایل‌های هدر (رفع خطاهای نبود فایل)
+          # 3. اصلاح مسیر فایل‌های هدر
           find drivers/KernelSU-Next/kernel -type f -name "*.[ch]" -exec sed -i 's/linux\/compiler_types.h/linux\/compiler.h/g' {} +
           find drivers/KernelSU-Next/kernel -type f -name "*.[ch]" -exec sed -i 's/linux\/pgtable.h/asm\/pgtable.h/g' {} +
           find drivers/KernelSU-Next/kernel -type f -name "*.[ch]" -exec sed -i 's/linux\/sched\/task_stack.h/linux\/sched.h/g' {} +
@@ -89,7 +89,7 @@ jobs:
           # 5. رفع خطای کستینگ در sucompat
           sed -i 's/regs->__PT_PARM2_REG = empty_user_path()/regs->__PT_PARM2_REG = (unsigned long)empty_user_path()/g' drivers/KernelSU-Next/kernel/feature/sucompat.c
           
-          # 6. حل مشکل اخطار __x86_64__ در patch_memory.h
+          # 6. حل مشکل اخطار __x86_64__
           sed -i 's/#elif __x86_64__/#elif defined(__x86_64__)/g' drivers/KernelSU-Next/kernel/hook/patch_memory.h
           
           # 7. حل مشکل بنیادین LSM Hooks
@@ -103,9 +103,22 @@ jobs:
           find drivers/KernelSU-Next/kernel -type f -name "*.[ch]" -exec sed -i 's/untagged_addr//g' {} +
           sed -i '1i #include <linux/uaccess.h>' drivers/KernelSU-Next/kernel/hook/syscall_event_bridge.c
           
+          # 9. حل مشکلات مدیریت حافظه (Memory Patching) در معماری ARM64
+          # شبیه‌سازی لایه P4D برای کرنل قدیمی و تعریف فرمول‌های فیزیکی حافظه
+          sed -i '1i #define p4d_val(x) pgd_val(x)' drivers/KernelSU-Next/kernel/hook/arm64/patch_memory.c
+          sed -i '1i #define p4d_bad(x) 0' drivers/KernelSU-Next/kernel/hook/arm64/patch_memory.c
+          sed -i '1i #define p4d_none(x) 0' drivers/KernelSU-Next/kernel/hook/arm64/patch_memory.c
+          sed -i '1i #define p4d_offset(pgd, addr) ((p4d_t *)(pgd))' drivers/KernelSU-Next/kernel/hook/arm64/patch_memory.c
+          sed -i '1i typedef pgd_t p4d_t;' drivers/KernelSU-Next/kernel/hook/arm64/patch_memory.c
+          sed -i '1i #define __pte_to_phys(pte) (pte_pfn(pte) << PAGE_SHIFT)' drivers/KernelSU-Next/kernel/hook/arm64/patch_memory.c
+          
+          # جایگزینی توابع کش و کپی با نسخه‌های معادلِ کرنل 4.4
+          sed -i 's/copy_to_kernel_nofault/probe_kernel_write/g' drivers/KernelSU-Next/kernel/hook/arm64/patch_memory.c
+          sed -i 's/__flush_icache_range/flush_icache_range/g' drivers/KernelSU-Next/kernel/hook/arm64/patch_memory.c
+          sed -i 's/void \*map = set_fixmap_offset/void \*map = (void \*)set_fixmap_offset/g' drivers/KernelSU-Next/kernel/hook/arm64/patch_memory.c
+          
           echo "Deep Patching completed successfully!"
-    
-      
+
 
       - name: Verify kernel source
         shell: bash
