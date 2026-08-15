@@ -82,6 +82,9 @@ jobs:
           # 5. حل مشکل فایل هدر pgtable.h: تغییر مسیر به نسخه سازگار در کرنل قدیمی
           find drivers/KernelSU-Next/kernel -type f -name "*.[ch]" -exec sed -i 's/linux\/pgtable.h/asm\/pgtable.h/g' {} +
           
+          # 6. حل مشکل فایل هدر task_stack.h: بازگردانی به فایل جامع sched.h
+          find drivers/KernelSU-Next/kernel -type f -name "*.[ch]" -exec sed -i 's/linux\/sched\/task_stack.h/linux\/sched.h/g' {} +
+          
           echo "Patching completed successfully!"
 
 
