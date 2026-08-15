@@ -104,17 +104,12 @@ jobs:
           sed -i '1i #include <linux/uaccess.h>' drivers/KernelSU-Next/kernel/hook/syscall_event_bridge.c
           
           # 9. حل مشکلات مدیریت حافظه (Memory Patching) در معماری ARM64
-          # شبیه‌سازی لایه P4D برای کرنل قدیمی و تعریف فرمول‌های فیزیکی حافظه
-          sed -i '1i #define p4d_val(x) pgd_val(x)' drivers/KernelSU-Next/kernel/hook/arm64/patch_memory.c
-          sed -i '1i #define p4d_bad(x) 0' drivers/KernelSU-Next/kernel/hook/arm64/patch_memory.c
-          sed -i '1i #define p4d_none(x) 0' drivers/KernelSU-Next/kernel/hook/arm64/patch_memory.c
-          sed -i '1i #define p4d_offset(pgd, addr) ((p4d_t *)(pgd))' drivers/KernelSU-Next/kernel/hook/arm64/patch_memory.c
-          sed -i '1i typedef pgd_t p4d_t;' drivers/KernelSU-Next/kernel/hook/arm64/patch_memory.c
-          sed -i '1i #define __pte_to_phys(pte) (pte_pfn(pte) << PAGE_SHIFT)' drivers/KernelSU-Next/kernel/hook/arm64/patch_memory.c
+          # تزریق تعاریف P4D به داخل فایل دقیقا در جایی که هدرهای کرنل خوانده شده‌اند
+          sed -i 's/.*phys_from_virt(.*/typedef pgd_t p4d_t;\n#define p4d_val(x) pgd_val(x)\n#define p4d_bad(x) 0\n#define p4d_none(x) 0\n#define p4d_offset(pgd, addr) ((p4d_t *)(pgd))\n#define __pte_to_phys(pte) (pte_pfn(pte) << PAGE_SHIFT)\n\n&/' drivers/KernelSU-Next/kernel/hook/arm64/patch_memory.c
           
-          # جایگزینی توابع کش و کپی با نسخه‌های معادلِ کرنل 4.4
+          # جایگزینی اصولی توابع کش با ذکر آرگومان‌های صحیح تا خطای بی‌اثر بودن برطرف شود
           sed -i 's/copy_to_kernel_nofault/probe_kernel_write/g' drivers/KernelSU-Next/kernel/hook/arm64/patch_memory.c
-          sed -i 's/__flush_icache_range/flush_icache_range/g' drivers/KernelSU-Next/kernel/hook/arm64/patch_memory.c
+          sed -i 's/#define ksu_flush_icache.*/#define ksu_flush_icache(start, end) flush_icache_range(start, end)/g' drivers/KernelSU-Next/kernel/hook/arm64/patch_memory.c
           sed -i 's/void \*map = set_fixmap_offset/void \*map = (void \*)set_fixmap_offset/g' drivers/KernelSU-Next/kernel/hook/arm64/patch_memory.c
           
           echo "Deep Patching completed successfully!"
