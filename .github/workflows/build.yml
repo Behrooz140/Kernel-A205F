@@ -55,7 +55,7 @@ jobs:
           rm -rf drivers/KernelSU-Next || true
           rm -rf ksu-temp || true
 
-          # کلون کردن مخزن
+          # کلون کردن مخزن تازه
           git clone https://github.com/KernelSU-Next/KernelSU-Next.git drivers/KernelSU-Next --depth 1
 
           # معرفی پوشه به بیلد سیستم
@@ -63,29 +63,32 @@ jobs:
           echo 'obj-y += KernelSU-Next/kernel/' >> drivers/Makefile
 
           echo "========================================"
-          echo "Patching KernelSU Next for Legacy GCC 4.9 & Kernel 4.4"
+          echo "Deep Patching KernelSU Next for GCC 4.9 & Kernel 4.4"
           echo "========================================"
           
-          # 1. حذف فلگ‌های کامپایلری که توسط GCC 4.9 پشتیبانی نمی‌شوند
-          find drivers/KernelSU-Next/kernel -type f -name "Makefile" -exec sed -i 's/-Wno-gcc-compat//g' {} +
-          find drivers/KernelSU-Next/kernel -type f -name "Makefile" -exec sed -i 's/-Wno-int-conversion//g' {} +
+          # 1. اصلاح تنظیمات کامپایلر (این بار در هر دو فایل Makefile و Kbuild)
+          find drivers/KernelSU-Next/kernel -type f \( -name "Makefile" -o -name "Kbuild" \) -exec sed -i 's/-Wno-gcc-compat//g' {} +
+          find drivers/KernelSU-Next/kernel -type f \( -name "Makefile" -o -name "Kbuild" \) -exec sed -i 's/-Wno-int-conversion//g' {} +
+          find drivers/KernelSU-Next/kernel -type f \( -name "Makefile" -o -name "Kbuild" \) -exec sed -i 's/-Werror//g' {} +
+          # غیرفعال کردن زوریِ تبدیل اخطار به ارور برای کل ماژول KSU
+          echo 'ccflags-y += -Wno-error' >> drivers/KernelSU-Next/kernel/Makefile
           
-          # 2. جلوگیری از تبدیل اخطارها به ارور کشنده (حذف -Werror)
-          find drivers/KernelSU-Next/kernel -type f -name "Makefile" -exec sed -i 's/-Werror//g' {} +
+          # 2. تعریف صحیح syscall_fn_t به عنوان یک اشاره‌گر تابع قابل اجرا
+          sed -i '1i typedef long (*syscall_fn_t)();' drivers/KernelSU-Next/kernel/hook/syscall_hook.h
           
-          # 3. تعریف دستیِ نوع داده syscall_fn_t که در کرنل 4.4 وجود ندارد
-          sed -i '1i typedef void* syscall_fn_t;' drivers/KernelSU-Next/kernel/hook/syscall_hook.h
-          
-          # 4. حل مشکل فایل هدر compiler_types.h
+          # 3. اصلاح مسیر فایل‌های هدر
           find drivers/KernelSU-Next/kernel -type f -name "*.[ch]" -exec sed -i 's/linux\/compiler_types.h/linux\/compiler.h/g' {} +
-          
-          # 5. حل مشکل فایل هدر pgtable.h: تغییر مسیر به نسخه سازگار در کرنل قدیمی
           find drivers/KernelSU-Next/kernel -type f -name "*.[ch]" -exec sed -i 's/linux\/pgtable.h/asm\/pgtable.h/g' {} +
-          
-          # 6. حل مشکل فایل هدر task_stack.h: بازگردانی به فایل جامع sched.h
           find drivers/KernelSU-Next/kernel -type f -name "*.[ch]" -exec sed -i 's/linux\/sched\/task_stack.h/linux\/sched.h/g' {} +
           
-          echo "Patching completed successfully!"
+          # 4. ترجمه توابع مدرن به توابع معادل در کرنل 4.4
+          find drivers/KernelSU-Next/kernel -type f -name "*.[ch]" -exec sed -i 's/strncpy_from_user_nofault/strncpy_from_user/g' {} +
+          find drivers/KernelSU-Next/kernel -type f -name "*.[ch]" -exec sed -i 's/ksys_close/sys_close/g' {} +
+          
+          # 5. رفع خطای کستینگ (تبدیل پوینتر به عدد صحیح در ثبات‌های پردازنده)
+          sed -i 's/regs->__PT_PARM2_REG = empty_user_path()/regs->__PT_PARM2_REG = (unsigned long)empty_user_path()/g' drivers/KernelSU-Next/kernel/feature/sucompat.c
+          
+          echo "Deep Patching completed successfully!"
 
 
       - name: Verify kernel source
