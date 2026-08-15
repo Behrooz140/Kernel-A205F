@@ -48,35 +48,20 @@ jobs:
         shell: bash
         run: |
           echo "========================================"
-          echo "Integrating KernelSU Next Legacy Driver"
+          echo "Integrating KernelSU Next (Full Repo)"
           echo "========================================"
 
-          # دانلود مخزن در یک پوشه موقت
-          git clone https://github.com/KernelSU-Next/KernelSU-Next.git ksu-temp --depth 1
+          # پاک کردن کدهای ناقص قبلی برای جلوگیری از تداخل
+          rm -rf drivers/kernelsu-next || true
+          rm -rf ksu-temp || true
 
-          # کپی کردن محتویات پوشه kernel به مسیر اصلی درایورها
-          cp -r ksu-temp/kernel drivers/kernelsu-next
-          
-          # پاک کردن پوشه موقت برای تمیز ماندن سورس
-          rm -rf ksu-temp
+          # کلون کردن "کل" مخزن در مسیر درایورها
+          git clone https://github.com/KernelSU-Next/KernelSU-Next.git drivers/KernelSU-Next --depth 1
 
-          # اضافه کردن سورس درایور به انتهای فایل‌های Kconfig و Makefile
-          echo 'source "drivers/kernelsu-next/Kconfig"' >> drivers/Kconfig
-          echo 'obj-y += kernelsu-next/' >> drivers/Makefile
-
-          # بررسی وجود فایل‌ها برای اطمینان از انتقال درست
-          if [ ! -f "drivers/kernelsu-next/Kconfig" ]; then
-            echo "Error: Kconfig not found in drivers/kernelsu-next!"
-            exit 1
-          fi
-
-          if [ ! -f "drivers/kernelsu-next/Makefile" ]; then
-            echo "Error: Makefile not found in drivers/kernelsu-next!"
-            exit 1
-          fi
-
-          echo "KernelSU Next Legacy integrated successfully!"
-
+          # معرفی پوشه کرنل (از داخل مخزن دانلود شده) به سیستم بیلد
+          sed -i '/kernelsu-next/d' drivers/Makefile || true
+          sed -i '/KernelSU-Next/d' drivers/Makefile || true
+          echo 'obj-y += KernelSU-Next/kernel/' >> drivers/Makefile
 
       - name: Verify kernel source
         shell: bash
@@ -112,26 +97,33 @@ jobs:
           export CROSS_COMPILE="$TOOLCHAIN/bin/aarch64-linux-android-"
 
           echo "========================================"
-          echo "Forcing KSU to ignore missing dependencies"
+          echo "Fixing KSU integration in Kconfig"
           echo "========================================"
           
-          # این دستور کلیدی، تمام پیش‌نیازهای اجباری کرنل‌سو را پاک می‌کند 
-          # تا سیستم بیلد نتواند تنظیمات ما را به خاطر کمبود امکانات کرنل پس بزند.
-          sed -i '/depends on/d' drivers/kernelsu-next/Kconfig
-          
-          # اطمینان از پاک بودن فایل از کدهای تکراری اجراهای قبل
+          # پاکسازی تلاش‌های قبلی
           sed -i '/kernelsu-next/d' arch/arm64/Kconfig || true
+          sed -i '/KernelSU-Next/d' arch/arm64/Kconfig || true
           
-          # اتصال سورس به کرنل
-          echo 'source "drivers/kernelsu-next/Kconfig"' >> arch/arm64/Kconfig
+          # حذف پیش‌نیازهای اجباری از فایل Kconfig اصلی کرنل‌سو
+          sed -i '/depends on/d' drivers/KernelSU-Next/kernel/Kconfig
+          
+          # معرفی Kconfig جدید به سورس کرنل
+          echo 'source "drivers/KernelSU-Next/kernel/Kconfig"' >> arch/arm64/Kconfig
 
           echo "========================================"
           echo "Patching defconfig and Generating .config"
           echo "========================================"
 
-          # تزریق تنظیمات کرنل‌سو میراثی
-          echo "CONFIG_KSU=y" >> arch/arm64/configs/exynos7885-a20_defconfig
-          echo "CONFIG_KSU_LEGACY=y" >> arch/arm64/configs/exynos7885-a20_defconfig
+          # تزریق پیش‌نیازهای حیاتی و تنظیمات کرنل‌سو
+          cat <<EOF >> arch/arm64/configs/exynos7885-a20_defconfig
+          CONFIG_KPROBES=y
+          CONFIG_HAVE_KPROBES=y
+          CONFIG_KRETPROBES=y
+          CONFIG_HAVE_KRETPROBES=y
+          CONFIG_OVERLAY_FS=y
+          CONFIG_KSU=y
+          CONFIG_KSU_LEGACY=y
+          EOF
 
           # تولید کانفیگ نهایی
           make \
