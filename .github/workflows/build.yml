@@ -112,27 +112,33 @@ jobs:
           export CROSS_COMPILE="$TOOLCHAIN/bin/aarch64-linux-android-"
 
           echo "========================================"
-          echo "Fixing KSU integration in Kconfig (Robust Method)"
+          echo "Fixing KSU integration in Kconfig (Bulletproof Method)"
           echo "========================================"
           
-          # پاکسازی تمام خطوط اشتباهی که در اجراهای قبلی اضافه شده بود
-          sed -i '/kernelsu-next/d' drivers/Kconfig
+          # پاکسازی تمام تلاش‌های ناموفق قبلی از فایل‌های مختلف
+          sed -i '/kernelsu-next/d' drivers/Kconfig || true
           sed -i '/kernelsu-next/d' fs/Kconfig || true
+          sed -i '/kernelsu-next/d' arch/arm64/Kconfig || true
           
-          # روش قطعی: درج کردن سورس کرنل‌سو دقیقا یک خط "قبل" از تگ endmenu در فایل درایورها
-          sed -i '/endmenu/i source "drivers/kernelsu-next/Kconfig"' drivers/Kconfig
+          # روش قطعی: اضافه کردن سورس به انتهای فایل اصلی معماری پردازنده
+          echo 'source "drivers/kernelsu-next/Kconfig"' >> arch/arm64/Kconfig
 
           echo "========================================"
           echo "Patching defconfig and Generating .config"
           echo "========================================"
 
-          # تزریق پیش‌نیازهای حیاتی و تنظیمات کرنل‌سو میراثی (Legacy)
-          echo "CONFIG_KPROBES=y" >> arch/arm64/configs/exynos7885-a20_defconfig
-          echo "CONFIG_KRETPROBES=y" >> arch/arm64/configs/exynos7885-a20_defconfig
-          echo "CONFIG_KSU=y" >> arch/arm64/configs/exynos7885-a20_defconfig
-          echo "CONFIG_KSU_LEGACY=y" >> arch/arm64/configs/exynos7885-a20_defconfig
+          # تزریق پیش‌نیازهای حیاتی و تنظیمات کرنل‌سو به صورت گروهی
+          cat <<EOF >> arch/arm64/configs/exynos7885-a20_defconfig
+          CONFIG_KPROBES=y
+          CONFIG_HAVE_KPROBES=y
+          CONFIG_KRETPROBES=y
+          CONFIG_HAVE_KRETPROBES=y
+          CONFIG_OVERLAY_FS=y
+          CONFIG_KSU=y
+          CONFIG_KSU_LEGACY=y
+          EOF
 
-          # کامپایل تنظیمات نهایی با مقادیر اضافه شده
+          # کامپایل تنظیمات نهایی (اکنون مقادیر بالا را به درستی می‌خواند)
           make \
             ARCH=arm64 \
             CROSS_COMPILE="$CROSS_COMPILE" \
@@ -147,10 +153,9 @@ jobs:
             echo "========================================"
           else
             echo "ERROR: KernelSU configuration failed!"
-            echo "Checking what was generated for KSU:"
-            grep "KSU" .config || echo "No KSU entries found at all."
             exit 1
           fi
+
 
 
       - name: Clean host tools
