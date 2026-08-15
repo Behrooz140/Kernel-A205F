@@ -108,36 +108,47 @@ jobs:
           set -e
 
           TOOLCHAIN="$GITHUB_WORKSPACE/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9"
-
           export PATH="$TOOLCHAIN/bin:$PATH"
           export CROSS_COMPILE="$TOOLCHAIN/bin/aarch64-linux-android-"
 
           echo "========================================"
-          echo "Generating A20 defconfig"
+          echo "Fixing KSU integration in Kconfig"
+          echo "========================================"
+          
+          # پاک کردن خط اشتباه قبلی (در صورت وجود)
+          sed -i 's/source "drivers\/kernelsu-next\/Kconfig"//g' drivers/Kconfig
+          
+          # اضافه کردن ایمنِ سورس به فایل سیستم‌ها (که مشکل endmenu ندارد)
+          grep -q 'kernelsu-next' fs/Kconfig || echo 'source "drivers/kernelsu-next/Kconfig"' >> fs/Kconfig
+
+          echo "========================================"
+          echo "Patching defconfig and Generating .config"
           echo "========================================"
 
-          # 1. تولید کانفیگ اولیه
+          # تزریق مستقیم پیش‌نیازها و تنظیمات KSU به defconfig اصلی گوشی شما
+          echo "CONFIG_KPROBES=y" >> arch/arm64/configs/exynos7885-a20_defconfig
+          echo "CONFIG_KRETPROBES=y" >> arch/arm64/configs/exynos7885-a20_defconfig
+          echo "CONFIG_KSU=y" >> arch/arm64/configs/exynos7885-a20_defconfig
+          echo "CONFIG_KSU_LEGACY=y" >> arch/arm64/configs/exynos7885-a20_defconfig
+
+          # تولید کانفیگ نهایی
           make \
             ARCH=arm64 \
             CROSS_COMPILE="$CROSS_COMPILE" \
             exynos7885-a20_defconfig
 
-          # 2. تزریق مقادیر KernelSU
-          echo "CONFIG_KSU=y" >> .config
-          echo "CONFIG_KSU_LEGACY=y" >> .config
+          echo "Config generated."
 
-          # 3. تایید خودکار کانفیگ‌های جدید بدون پرسش (دستور کلیدی برای رفع ارور)
-          make \
-            ARCH=arm64 \
-            CROSS_COMPILE="$CROSS_COMPILE" \
-            olddefconfig
+          # بررسی وضعیت به روش ایمن (بدون کرش کردن ورک‌فلو)
+          if grep -q "CONFIG_KSU=y" .config; then
+            echo "========================================"
+            echo "SUCCESS: KernelSU Legacy is active in .config!"
+            echo "========================================"
+          else
+            echo "ERROR: KernelSU configuration failed!"
+            exit 1
+          fi
 
-          echo
-          echo "Config generated and KernelSU Legacy patches applied."
-
-          # تایید نهایی
-          grep "CONFIG_KSU" .config
-          test -f .config
 
 
       - name: Clean host tools
