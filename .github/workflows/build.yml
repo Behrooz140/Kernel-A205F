@@ -202,12 +202,28 @@ jobs:
           cat "$APK_SIGN" >> temp_apk.c
           mv temp_apk.c "$APK_SIGN"
 
-          # 16. حل ناسازگاری خطرناک سیستم fsnotify در کرنل 4.4 (جلوگیری قطعی از کرنل پنیک)
+          # 16. حل ناسازگاری خطرناک سیستم fsnotify در کرنل 4.4
           PKG_OBSERVER="drivers/KernelSU-Next/kernel/manager/pkg_observer.c"
           cat <<EOF > "$PKG_OBSERVER"
           int ksu_fsnotify_init(void) { return 0; }
           void ksu_fsnotify_exit(void) {}
           EOF
+          
+          # 17. حل مشکل Throne Tracker (استفاده از همون تابع ریدِ تزریقی و حذف آرگومان سوم هَش)
+          THRONE="drivers/KernelSU-Next/kernel/manager/throne_tracker.c"
+          sed -i 's/full_name_hash(NULL, /full_name_hash(/g' "$THRONE"
+          sed -i 's/kernel_read(/ksu_kernel_read(/g' "$THRONE"
+          cat <<EOF > temp_throne.c
+          #include <linux/fs.h>
+          #include <linux/types.h>
+          static inline int ksu_kernel_read(struct file *file, void *buf, size_t count, loff_t *pos) {
+              int ret = kernel_read(file, *pos, (char *)buf, count);
+              if (ret > 0) *pos += ret;
+              return ret;
+          }
+          EOF
+          cat "$THRONE" >> temp_throne.c
+          mv temp_throne.c "$THRONE"
 
           echo "Deep Patching completed successfully!"
 
