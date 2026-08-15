@@ -1,0 +1,236 @@
+name: Build A205F KernelSU Next
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Kernel with KernelSU Next
+    runs-on: ubuntu-22.04
+
+    env:
+      ARCH: arm64
+      SUBARCH: arm64
+      ANDROID_MAJOR_VERSION: r
+      PLATFORM_VERSION: 11
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+
+          sudo apt-get install -y \
+            bc \
+            bison \
+            build-essential \
+            ccache \
+            curl \
+            flex \
+            git \
+            libelf-dev \
+            libncurses5-dev \
+            libssl-dev \
+            lz4 \
+            python3 \
+            rsync \
+            unzip \
+            zip
+
+      - name: Setup KernelSU Next
+        shell: bash
+        run: |
+          echo "========================================"
+          echo "Cloning KernelSU Next"
+          echo "========================================"
+
+          # دانلود سورس کرنل‌سو نکست در مسیر drivers/kernelsu-next (یا kernelsu)
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s next
+
+          # بررسی اضافه شدن موفقیت‌آمیز
+          test -d drivers/kernelsu-next || test -d drivers/kernelsu
+
+      - name: Verify kernel source
+        shell: bash
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "Kernel source"
+          echo "========================================"
+
+          test -f Makefile
+          test -f arch/arm64/configs/exynos7885-a20_defconfig
+
+          TOOLCHAIN="$GITHUB_WORKSPACE/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9"
+
+          test -d "$TOOLCHAIN"
+          test -x "$TOOLCHAIN/bin/aarch64-linux-android-gcc"
+
+          echo "Toolchain:"
+          "$TOOLCHAIN/bin/aarch64-linux-android-gcc" --version
+
+          echo
+          echo "Kernel version:"
+          make kernelversion
+
+      - name: Configure
+        shell: bash
+        run: |
+          set -e
+
+          TOOLCHAIN="$GITHUB_WORKSPACE/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9"
+
+          export PATH="$TOOLCHAIN/bin:$PATH"
+          export CROSS_COMPILE="$TOOLCHAIN/bin/aarch64-linux-android-"
+
+          echo "========================================"
+          echo "Generating A20 defconfig"
+          echo "========================================"
+
+          make \
+            ARCH=arm64 \
+            CROSS_COMPILE="$CROSS_COMPILE" \
+            exynos7885-a20_defconfig
+
+          # فعال‌سازی گزینه‌های KernelSU در فایل کانفیگ
+          echo "CONFIG_KSU=y" >> .config
+
+          echo
+          echo "Config generated successfully."
+
+          test -f .config
+
+      - name: Clean host tools
+        shell: bash
+        run: |
+          rm -f scripts/dtc/dtc
+          rm -f scripts/dtc/*.o
+          rm -f scripts/dtc/dtc-lexer.lex.o
+          rm -f scripts/dtc/dtc-parser.tab.o
+
+      - name: Build kernel
+        shell: bash
+        run: |
+          set -e
+
+          TOOLCHAIN="$GITHUB_WORKSPACE/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9"
+
+          export PATH="$TOOLCHAIN/bin:$PATH"
+          export CROSS_COMPILE="$TOOLCHAIN/bin/aarch64-linux-android-"
+
+          # Old Samsung kernel DTC requires GCC common-symbol behavior.
+          export HOSTCFLAGS="-fcommon"
+          export HOSTCXXFLAGS="-fcommon"
+
+          echo "========================================"
+          echo "Building A205F kernel with KSU Next"
+          echo "========================================"
+
+          echo "ARCH=$ARCH"
+          echo "CROSS_COMPILE=$CROSS_COMPILE"
+          echo "HOSTCFLAGS=$HOSTCFLAGS"
+
+          make \
+            ARCH=arm64 \
+            CROSS_COMPILE="$CROSS_COMPILE" \
+            HOSTCFLAGS="$HOSTCFLAGS" \
+            HOSTCXXFLAGS="$HOSTCXXFLAGS" \
+            -j"$(nproc)"
+
+      - name: Verify build output
+        if: always()
+        shell: bash
+        run: |
+          echo "========================================"
+          echo "Build output"
+          echo "========================================"
+
+          echo
+          echo "Image:"
+          ls -lh arch/arm64/boot/Image 2>/dev/null || true
+
+          echo
+          echo "Compressed images:"
+          find arch/arm64/boot \
+            -maxdepth 1 \
+            -type f \
+            \( -name 'Image*' -o -name 'zImage' \) \
+            -exec ls -lh {} \; \
+            2>/dev/null || true
+
+          echo
+          echo "DTB files:"
+          find arch/arm64/boot/dts \
+            -type f \
+            -name '*.dtb' \
+            -exec ls -lh {} \; \
+            2>/dev/null || true
+
+          echo
+          echo "DTBO files:"
+          find arch/arm64/boot/dts \
+            -type f \
+            -name '*.dtbo' \
+            -exec ls -lh {} \; \
+            2>/dev/null || true
+
+      - name: Package artifacts
+        if: success()
+        shell: bash
+        run: |
+          set -e
+
+          mkdir -p output/dtb
+          mkdir -p output/dtb/dtbo
+
+          echo "========================================"
+          echo "Collecting kernel"
+          echo "========================================"
+
+          test -f arch/arm64/boot/Image
+
+          cp -v arch/arm64/boot/Image output/Image
+
+          if [ -f arch/arm64/boot/Image.gz ]; then
+            cp -v arch/arm64/boot/Image.gz output/Image.gz
+          fi
+
+          if [ -d arch/arm64/boot/dts ]; then
+            find arch/arm64/boot/dts \
+              -type f \
+              -name '*.dtb' \
+              -exec cp -v {} output/dtb/ \; \
+              || true
+
+            find arch/arm64/boot/dts \
+              -type f \
+              -name '*.dtbo' \
+              -exec cp -v {} output/dtbo/ \; \
+              || true
+          fi
+
+          cp -v .config output/kernel.config
+
+          echo
+          echo "========================================"
+          echo "Final artifacts"
+          echo "========================================"
+
+          find output -type f -exec ls -lh {} \;
+
+      - name: Upload kernel artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: A205F-KernelSU-Next
+          path: output/
+          if-no-files-found: error
+          retention-days: 14
