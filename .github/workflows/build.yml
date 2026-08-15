@@ -153,13 +153,28 @@ jobs:
           sed -i 's/orig->f_op->remap_file_range/ksu_dummy_func/g' "$FILE_WRAPPER"
           sed -i 's/orig->f_op->fadvise/ksu_dummy_func/g' "$FILE_WRAPPER"
 
-          # 11. حل مشکل سیستم ردیابی رویدادها (Event Queue) و ثابت‌های EPOLL در کرنل 4.4
+          # 11. حل مشکل سیستم ردیابی رویدادها
           EVENT_QUEUE="drivers/KernelSU-Next/kernel/infra/event_queue.c"
           EVENT_QUEUE_H="drivers/KernelSU-Next/kernel/infra/event_queue.h"
-          
-          # تعریف نوع داده و ترجمه ثابت‌ها به زبان کرنل 4.4
           sed -i '1i typedef unsigned int __poll_t;' "$EVENT_QUEUE_H"
           sed -i '1i #define EPOLLIN POLLIN\n#define EPOLLHUP POLLHUP\n#define EPOLLRDNORM POLLRDNORM' "$EVENT_QUEUE"
+          
+          # 12. حل مشکلات Seccomp Cache (تایپ‌های جدید و توابع شمارشگر)
+          SECCOMP_CACHE="drivers/KernelSU-Next/kernel/infra/seccomp_cache.c"
+          cat <<EOF > temp_seccomp.c
+          #include <linux/atomic.h>
+          #include <asm/unistd.h>
+          #ifndef SECCOMP_ARCH_NATIVE_NR
+          #define SECCOMP_ARCH_NATIVE_NR 512
+          #endif
+          typedef atomic_t refcount_t;
+          #define refcount_set atomic_set
+          #define refcount_inc atomic_inc
+          #define refcount_dec_and_test atomic_dec_and_test
+          #define refcount_read atomic_read
+          EOF
+          cat "$SECCOMP_CACHE" >> temp_seccomp.c
+          mv temp_seccomp.c "$SECCOMP_CACHE"
 
           echo "Deep Patching completed successfully!"
 
