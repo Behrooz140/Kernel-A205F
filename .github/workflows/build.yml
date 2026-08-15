@@ -1,4 +1,4 @@
-name: Build A205F KernelSU Next
+name: Build A205F KernelSU Next (Legacy)
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ permissions:
 
 jobs:
   build:
-    name: Build Kernel with KernelSU Next
+    name: Build Kernel with Legacy KernelSU Next Integration
     runs-on: ubuntu-22.04
 
     env:
@@ -44,18 +44,27 @@ jobs:
             unzip \
             zip
 
-      - name: Setup KernelSU Next
+      - name: Setup KernelSU Next (Legacy Integration)
         shell: bash
         run: |
           echo "========================================"
-          echo "Cloning KernelSU Next"
+          echo "Integrating KernelSU Next Legacy Driver"
           echo "========================================"
 
-          # دانلود سورس کرنل‌سو نکست در مسیر drivers/kernelsu-next (یا kernelsu)
-          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s next
+          # کلون کردن سورس مستقیم در پوشه drivers به عنوان kernelsu-next
+          git clone https://github.com/KernelSU-Next/KernelSU-Next drivers/kernelsu-next -b next --depth 1
 
-          # بررسی اضافه شدن موفقیت‌آمیز
-          test -d drivers/kernelsu-next || test -d drivers/kernelsu
+          # ویرایش فایل‌های Kconfig و Makefile اصلی برای ادغام درایور
+          # اضافه کردن سورس درایور به منوی کانفیگ قبل از 'endmenu' در drivers/Kconfig
+          sed -i '/endmenu/s//endmenu\n\nsource "drivers\/kernelsu-next\/Kconfig"/' drivers/Kconfig
+          # اضافه کردن سورس درایور به فرآیند ساخت در drivers/Makefile
+          echo 'obj-y += kernelsu-next/' >> drivers/Makefile
+
+          # بررسی اضافه شدن موفقیت‌آمیز فایل‌ها و تنظیمات
+          test -f drivers/kernelsu-next/Kconfig
+          test -f drivers/kernelsu-next/Makefile
+          grep "drivers/kernelsu-next" drivers/Kconfig
+          grep "kernelsu-next" drivers/Makefile
 
       - name: Verify kernel source
         shell: bash
@@ -95,17 +104,32 @@ jobs:
           echo "Generating A20 defconfig"
           echo "========================================"
 
+          # تولید کانفیگ پایه از defconfig سامسونگ
           make \
             ARCH=arm64 \
             CROSS_COMPILE="$CROSS_COMPILE" \
             exynos7885-a20_defconfig
 
-          # فعال‌سازی گزینه‌های KernelSU در فایل کانفیگ
-          echo "CONFIG_KSU=y" >> .config
+          # ایجاد یک فایل پچ کانفیگ برای KernelSU Next میراثی
+          # نکته: ما از 'CONFIG_KSU_LEGACY=y' استفاده می‌کنیم که گزینه کلیدی برای این مشکل است.
+          cat <<EOF > kernel/configs/ksu.config
+          CONFIG_KSU=y
+          CONFIG_KSU_LEGACY=y
+          # برخی کرنل‌های قدیمی سامسونگ به این گزینه برای پایداری نیاز دارند
+          # CONFIG_CC_STACKPROTECTOR_STRONG=y
+          # اطمینان حاصل کنید که SELinux فعال است (اغلب به طور پیش‌فرض است)
+          # CONFIG_SECURITY_SELINUX=y
+          EOF
+
+          # اعمال فایل پچ کانفیگ به .config تولید شده با استفاده از merge_config.sh
+          scripts/kconfig/merge_config.sh -m .config kernel/configs/ksu.config
 
           echo
-          echo "Config generated successfully."
+          echo "Config generated and KernelSU Legacy patches applied."
 
+          # تایید نهایی فایل .config
+          grep "CONFIG_KSU=y" .config
+          grep "CONFIG_KSU_LEGACY=y" .config
           test -f .config
 
       - name: Clean host tools
@@ -131,7 +155,7 @@ jobs:
           export HOSTCXXFLAGS="-fcommon"
 
           echo "========================================"
-          echo "Building A205F kernel with KSU Next"
+          echo "Building A205F kernel with Legacy KSU Next"
           echo "========================================"
 
           echo "ARCH=$ARCH"
@@ -188,11 +212,12 @@ jobs:
         run: |
           set -e
 
+          # اصلاح پوشه output و زیرپوشه‌ها
           mkdir -p output/dtb
           mkdir -p output/dtbo
 
           echo "========================================"
-          echo "Collecting kernel"
+          echo "Collecting kernel and DTB files"
           echo "========================================"
 
           test -f arch/arm64/boot/Image
@@ -226,12 +251,11 @@ jobs:
 
           find output -type f -exec ls -lh {} \;
 
-
       - name: Upload kernel artifact
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: A205F-KernelSU-Next
+          name: A205F-KernelSU-Next-Legacy
           path: output/
           if-no-files-found: error
           retention-days: 14
