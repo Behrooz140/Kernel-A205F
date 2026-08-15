@@ -178,9 +178,9 @@ jobs:
           cat "$SECCOMP_CACHE" >> temp_seccomp.c
           mv temp_seccomp.c "$SECCOMP_CACHE"
 
-          # 13. حل مشکلات Mount Namespace (تبدیل خروجی پوینتر به عدد و توابع قدیمی)
+          # 13. حل مشکلات Mount Namespace (فراخوانی کتابخانه استاندارد به جای حدس زدن تایپ)
           SU_MOUNT="drivers/KernelSU-Next/kernel/infra/su_mount_ns.c"
-          sed -i '1i #include <linux/err.h>\nextern int sys_unshare(unsigned long unshare_flags);' "$SU_MOUNT"
+          sed -i '1i #include <linux/err.h>\n#include <linux/syscalls.h>' "$SU_MOUNT"
           sed -i 's/ns_get_path(&ns_path, pid1_task, &mntns_operations)/PTR_ERR_OR_ZERO(ns_get_path(\&ns_path, pid1_task, \&mntns_operations))/g' "$SU_MOUNT"
 
           echo "Deep Patching completed successfully!"
