@@ -189,9 +189,7 @@ jobs:
           
           # 15. حل مشکل تغییر آرگومان‌های تابع kernel_read در کرنل 4.4 با تزریق امن
           APK_SIGN="drivers/KernelSU-Next/kernel/manager/apk_sign.c"
-          # ابتدا کلمات را در کد جایگزین می‌کنیم تا تابع ما جایگزین نشود
           sed -i 's/kernel_read(/ksu_kernel_read(/g' "$APK_SIGN"
-          # سپس تابع جدید را به همراه هدرهای ضروری آن با cat تزریق می‌کنیم
           cat <<EOF > temp_apk.c
           #include <linux/fs.h>
           #include <linux/types.h>
@@ -203,6 +201,13 @@ jobs:
           EOF
           cat "$APK_SIGN" >> temp_apk.c
           mv temp_apk.c "$APK_SIGN"
+
+          # 16. حل ناسازگاری خطرناک سیستم fsnotify در کرنل 4.4 (جلوگیری قطعی از کرنل پنیک)
+          PKG_OBSERVER="drivers/KernelSU-Next/kernel/manager/pkg_observer.c"
+          cat <<EOF > "$PKG_OBSERVER"
+          int ksu_fsnotify_init(void) { return 0; }
+          void ksu_fsnotify_exit(void) {}
+          EOF
 
           echo "Deep Patching completed successfully!"
 
