@@ -44,7 +44,6 @@ jobs:
             unzip \
             zip
 
-      
       - name: Setup KernelSU Next (Legacy Integration)
         shell: bash
         run: |
@@ -81,6 +80,7 @@ jobs:
           find drivers/KernelSU-Next/kernel -type f -name "*.[ch]" -exec sed -i 's/linux\/pgtable.h/asm\/pgtable.h/g' {} +
           find drivers/KernelSU-Next/kernel -type f -name "*.[ch]" -exec sed -i 's/linux\/sched\/task_stack.h/linux\/sched.h/g' {} +
           find drivers/KernelSU-Next/kernel -type f -name "*.[ch]" -exec sed -i 's/linux\/sched\/signal.h/linux\/sched.h/g' {} +
+          find drivers/KernelSU-Next/kernel -type f -name "*.[ch]" -exec sed -i 's/linux\/sched\/task.h/linux\/sched.h/g' {} +
           
           # 4. ترجمه توابع مدرن به توابع معادل در کرنل 4.4
           find drivers/KernelSU-Next/kernel -type f -name "*.[ch]" -exec sed -i 's/strncpy_from_user_nofault/strncpy_from_user/g' {} +
@@ -98,13 +98,14 @@ jobs:
           void ksu_lsm_unhook(void) {}
           EOF
           
-          # 8. حل مشکلات Syscall Event Bridge (حذف ماکروی ناشناخته، حذف فیلتر آدرس، اضافه کردن کتابخانه uaccess)
+          # 8. حل مشکلات Syscall Event Bridge
           find drivers/KernelSU-Next/kernel -type f -name "*.[ch]" -exec sed -i 's/__nocfi //g' {} +
           find drivers/KernelSU-Next/kernel -type f -name "*.[ch]" -exec sed -i 's/untagged_addr//g' {} +
           sed -i '1i #include <linux/uaccess.h>' drivers/KernelSU-Next/kernel/hook/syscall_event_bridge.c
           
           echo "Deep Patching completed successfully!"
-
+    
+      
 
       - name: Verify kernel source
         shell: bash
