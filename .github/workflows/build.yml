@@ -109,10 +109,10 @@ jobs:
           sed -i 's/#define ksu_flush_icache.*/#define ksu_flush_icache(start, end) flush_icache_range(start, end)/g' drivers/KernelSU-Next/kernel/hook/arm64/patch_memory.c
           sed -i 's/void \*map = set_fixmap_offset/void \*map = (void \*)set_fixmap_offset/g' drivers/KernelSU-Next/kernel/hook/arm64/patch_memory.c
           
-          # 10. حل قطعی و هوشمندانه مشکلات File Wrapper و سیستم VFS کرنل 4.4
+          # 10. حل قطعی و بی‌نقص مشکلات File Wrapper و سیستم VFS کرنل 4.4
           FILE_WRAPPER="drivers/KernelSU-Next/kernel/infra/file_wrapper.c"
           
-          # تزریق ۱۰۰٪ تضمینیِ هدرها، یک متغیر Dummy و یک تابع Dummy
+          # تزریق ۱۰۰٪ تضمینیِ هدرها، یک متغیر پوینتر Dummy و یک ماکروی سیاه‌چاله
           cat <<EOF > temp_wrapper.c
           #include <linux/module.h>
           #include <linux/err.h>
@@ -124,13 +124,13 @@ jobs:
           #define selinux_inode(a) NULL
           typedef unsigned int __poll_t;
           
-          long ksu_dummy_var;
-          long ksu_dummy_func() { return 0; }
+          void *ksu_dummy_var;
+          #define ksu_dummy_func(...) 0
           EOF
           cat "$FILE_WRAPPER" >> temp_wrapper.c
           mv temp_wrapper.c "$FILE_WRAPPER"
           
-          # الف) هدایت مقادیر تخصیصی به متغیر ksu_dummy_var (بدون دست زدن به کدهای اصلی)
+          # الف) هدایت مقادیر تخصیصی به متغیر ksu_dummy_var (که از نوع void* است و با NULL سازگار است)
           sed -i 's/p->ops\.iopoll/ksu_dummy_var/g' "$FILE_WRAPPER"
           sed -i 's/p->ops\.iterate_shared/ksu_dummy_var/g' "$FILE_WRAPPER"
           sed -i 's/p->ops\.copy_file_range/ksu_dummy_var/g' "$FILE_WRAPPER"
@@ -138,7 +138,14 @@ jobs:
           sed -i 's/p->ops\.fadvise/ksu_dummy_var/g' "$FILE_WRAPPER"
           sed -i 's/p->ops\.mmap_supported_flags/ksu_dummy_var/g' "$FILE_WRAPPER"
           
-          # ب) صفر کردن چک‌های شرطی مربوط به امکانات مدرن (تا همیشه false شوند)
+          # ب) صفر کردن چک‌های if برای جلوگیری از خطای آدرس‌دهی (address evaluates to true)
+          sed -i 's/if (orig->f_op->iopoll)/if (0)/g' "$FILE_WRAPPER"
+          sed -i 's/if (orig->f_op->iterate_shared)/if (0)/g' "$FILE_WRAPPER"
+          sed -i 's/if (orig->f_op->copy_file_range)/if (0)/g' "$FILE_WRAPPER"
+          sed -i 's/if (orig->f_op->remap_file_range)/if (0)/g' "$FILE_WRAPPER"
+          sed -i 's/if (orig->f_op->fadvise)/if (0)/g' "$FILE_WRAPPER"
+          
+          # ج) صفر کردن چک‌های سه‌گانه (Ternary operators)
           sed -i 's/fp->f_op->iopoll/0/g' "$FILE_WRAPPER"
           sed -i 's/fp->f_op->iterate_shared/0/g' "$FILE_WRAPPER"
           sed -i 's/fp->f_op->copy_file_range/0/g' "$FILE_WRAPPER"
@@ -146,7 +153,7 @@ jobs:
           sed -i 's/fp->f_op->fadvise/0/g' "$FILE_WRAPPER"
           sed -i 's/fp->f_op->mmap_supported_flags/0/g' "$FILE_WRAPPER"
           
-          # ج) هدایت فراخوانی‌های توابع مدرن به تابع بی‌اثر ksu_dummy_func (برای جلوگیری از کرش)
+          # د) هدایت فراخوانی توابع چندخطی به ماکروی سیاه‌چاله که ورودی‌ها را می‌بلعد
           sed -i 's/orig->f_op->iopoll/ksu_dummy_func/g' "$FILE_WRAPPER"
           sed -i 's/orig->f_op->iterate_shared/ksu_dummy_func/g' "$FILE_WRAPPER"
           sed -i 's/orig->f_op->copy_file_range/ksu_dummy_func/g' "$FILE_WRAPPER"
