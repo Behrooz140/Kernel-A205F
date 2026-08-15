@@ -81,6 +81,7 @@ jobs:
           find drivers/KernelSU-Next/kernel -type f -name "*.[ch]" -exec sed -i 's/linux\/sched\/task_stack.h/linux\/sched.h/g' {} +
           find drivers/KernelSU-Next/kernel -type f -name "*.[ch]" -exec sed -i 's/linux\/sched\/signal.h/linux\/sched.h/g' {} +
           find drivers/KernelSU-Next/kernel -type f -name "*.[ch]" -exec sed -i 's/linux\/sched\/task.h/linux\/sched.h/g' {} +
+          find drivers/KernelSU-Next/kernel -type f -name "*.[ch]" -exec sed -i 's/uapi\/linux\/mount.h/linux\/mount.h/g' {} +
           
           # 4. ترجمه توابع مدرن به توابع معادل در کرنل 4.4
           find drivers/KernelSU-Next/kernel -type f -name "*.[ch]" -exec sed -i 's/strncpy_from_user_nofault/strncpy_from_user/g' {} +
@@ -109,7 +110,7 @@ jobs:
           sed -i 's/#define ksu_flush_icache.*/#define ksu_flush_icache(start, end) flush_icache_range(start, end)/g' drivers/KernelSU-Next/kernel/hook/arm64/patch_memory.c
           sed -i 's/void \*map = set_fixmap_offset/void \*map = (void \*)set_fixmap_offset/g' drivers/KernelSU-Next/kernel/hook/arm64/patch_memory.c
           
-          # 10. حل قطعی مشکلات File Wrapper و سیستم VFS کرنل 4.4
+          # 10. حل قطعی مشکلات File Wrapper
           FILE_WRAPPER="drivers/KernelSU-Next/kernel/infra/file_wrapper.c"
           cat <<EOF > temp_wrapper.c
           #include <linux/module.h>
@@ -159,7 +160,7 @@ jobs:
           sed -i '1i typedef unsigned int __poll_t;' "$EVENT_QUEUE_H"
           sed -i '1i #define EPOLLIN POLLIN\n#define EPOLLHUP POLLHUP\n#define EPOLLRDNORM POLLRDNORM' "$EVENT_QUEUE"
           
-          # 12. حل مشکلات Seccomp Cache (تایپ‌های جدید و توابع شمارشگر)
+          # 12. حل مشکلات Seccomp Cache
           SECCOMP_CACHE="drivers/KernelSU-Next/kernel/infra/seccomp_cache.c"
           cat <<EOF > temp_seccomp.c
           #include <linux/atomic.h>
