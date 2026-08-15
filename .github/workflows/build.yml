@@ -51,18 +51,31 @@ jobs:
           echo "Integrating KernelSU Next Legacy Driver"
           echo "========================================"
 
-          # کلون کردن سورس مستقیم در پوشه drivers به عنوان kernelsu-next (حذف -b next)
-          git clone https://github.com/KernelSU-Next/KernelSU-Next drivers/kernelsu-next --depth 1
+          # دانلود مخزن در یک پوشه موقت
+          git clone https://github.com/KernelSU-Next/KernelSU-Next.git ksu-temp --depth 1
 
-          # ویرایش فایل‌های Kconfig و Makefile اصلی برای ادغام درایور
-          sed -i '/endmenu/s//endmenu\n\nsource "drivers\/kernelsu-next\/Kconfig"/' drivers/Kconfig
+          # کپی کردن محتویات پوشه kernel به مسیر اصلی درایورها
+          cp -r ksu-temp/kernel drivers/kernelsu-next
+          
+          # پاک کردن پوشه موقت برای تمیز ماندن سورس
+          rm -rf ksu-temp
+
+          # اضافه کردن سورس درایور به انتهای فایل‌های Kconfig و Makefile
+          echo 'source "drivers/kernelsu-next/Kconfig"' >> drivers/Kconfig
           echo 'obj-y += kernelsu-next/' >> drivers/Makefile
 
-          # بررسی اضافه شدن موفقیت‌آمیز فایل‌ها و تنظیمات
-          test -f drivers/kernelsu-next/Kconfig
-          test -f drivers/kernelsu-next/Makefile
-          grep "drivers/kernelsu-next" drivers/Kconfig
-          grep "kernelsu-next" drivers/Makefile
+          # بررسی وجود فایل‌ها برای اطمینان از انتقال درست
+          if [ ! -f "drivers/kernelsu-next/Kconfig" ]; then
+            echo "Error: Kconfig not found in drivers/kernelsu-next!"
+            exit 1
+          fi
+
+          if [ ! -f "drivers/kernelsu-next/Makefile" ]; then
+            echo "Error: Makefile not found in drivers/kernelsu-next!"
+            exit 1
+          fi
+
+          echo "KernelSU Next Legacy integrated successfully!"
 
 
       - name: Verify kernel source
