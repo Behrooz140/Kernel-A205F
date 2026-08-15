@@ -82,7 +82,7 @@ jobs:
           find drivers/KernelSU-Next/kernel -type f -name "*.[ch]" -exec sed -i 's/linux\/sched\/signal.h/linux\/sched.h/g' {} +
           find drivers/KernelSU-Next/kernel -type f -name "*.[ch]" -exec sed -i 's/linux\/sched\/task.h/linux\/sched.h/g' {} +
           
-          # 4. ترجمه توابع مدرن به توابع معادل در کرنل 4.4
+          # 4. ترجمه توابع مدرن به توابع معادل
           find drivers/KernelSU-Next/kernel -type f -name "*.[ch]" -exec sed -i 's/strncpy_from_user_nofault/strncpy_from_user/g' {} +
           find drivers/KernelSU-Next/kernel -type f -name "*.[ch]" -exec sed -i 's/ksys_close/sys_close/g' {} +
           
@@ -103,16 +103,43 @@ jobs:
           find drivers/KernelSU-Next/kernel -type f -name "*.[ch]" -exec sed -i 's/untagged_addr//g' {} +
           sed -i '1i #include <linux/uaccess.h>' drivers/KernelSU-Next/kernel/hook/syscall_event_bridge.c
           
-          # 9. حل مشکلات مدیریت حافظه (Memory Patching) در معماری ARM64
-          # تزریق قطعی به خط ۱ فایل به همراه هدرهای ضروری برای جلوگیری از ارور typedef محلی
+          # 9. حل مشکلات مدیریت حافظه در معماری ARM64
           sed -i '1i #include <linux/mm.h>\n#include <asm/pgtable.h>\ntypedef pgd_t p4d_t __attribute__((unused));\n#define p4d_val(x) pgd_val(x)\n#define p4d_bad(x) 0\n#define p4d_none(x) 0\n#define p4d_offset(pgd, addr) ((p4d_t *)(pgd))\n#define __pte_to_phys(pte) (pte_pfn(pte) << PAGE_SHIFT)' drivers/KernelSU-Next/kernel/hook/arm64/patch_memory.c
-          
-          # جایگزینی اصولی توابع کش با ذکر آرگومان‌های صحیح
           sed -i 's/copy_to_kernel_nofault/probe_kernel_write/g' drivers/KernelSU-Next/kernel/hook/arm64/patch_memory.c
           sed -i 's/#define ksu_flush_icache.*/#define ksu_flush_icache(start, end) flush_icache_range(start, end)/g' drivers/KernelSU-Next/kernel/hook/arm64/patch_memory.c
           sed -i 's/void \*map = set_fixmap_offset/void \*map = (void \*)set_fixmap_offset/g' drivers/KernelSU-Next/kernel/hook/arm64/patch_memory.c
           
+          # 10. حل مشکلات File Wrapper و توابع مدرن VFS در کرنل 4.4
+          FILE_WRAPPER="drivers/KernelSU-Next/kernel/infra/file_wrapper.c"
+          
+          # تزریق هدرها و ماکروهای خنثی‌کننده به خط اول
+          sed -i '1i #include <linux/module.h>\n#include <linux/err.h>\n#ifndef REMAP_FILE_DEDUP\n#define REMAP_FILE_DEDUP 0\n#endif\n#define security_inode_init_security_anon(a,b,c) 0\n#define alloc_file_pseudo(a,b,c,d,e) ERR_PTR(-ENODEV)\n#define selinux_inode(a) NULL\ntypedef unsigned int __poll_t;' $FILE_WRAPPER
+          
+          # کامنت کردن توابع بازگشتی ناموجود
+          sed -i 's/return orig->f_op->iopoll/return 0 \/\//g' $FILE_WRAPPER
+          sed -i 's/return orig->f_op->iterate_shared/return 0 \/\//g' $FILE_WRAPPER
+          sed -i 's/return orig->f_op->copy_file_range/return 0 \/\//g' $FILE_WRAPPER
+          sed -i 's/return orig->f_op->remap_file_range/return 0 \/\//g' $FILE_WRAPPER
+          sed -i 's/return orig->f_op->fadvise/return 0 \/\//g' $FILE_WRAPPER
+          sed -i 's/if (orig->f_op->fadvise)/if (0)/g' $FILE_WRAPPER
+          
+          # قطع کردن تخصیص‌های استراکت برای جلوگیری از خطای "عضو ناموجود"
+          sed -i 's/fp->f_op->iopoll ?/0 ?/g' $FILE_WRAPPER
+          sed -i 's/fp->f_op->iterate_shared ?/0 ?/g' $FILE_WRAPPER
+          sed -i 's/fp->f_op->copy_file_range ?/0 ?/g' $FILE_WRAPPER
+          sed -i 's/fp->f_op->remap_file_range ?/0 ?/g' $FILE_WRAPPER
+          sed -i 's/fp->f_op->fadvise ?/0 ?/g' $FILE_WRAPPER
+          sed -i 's/fp->f_op->mmap_supported_flags/0/g' $FILE_WRAPPER
+          
+          sed -i '/\.iopoll/d' $FILE_WRAPPER
+          sed -i '/\.iterate_shared/d' $FILE_WRAPPER
+          sed -i '/\.copy_file_range/d' $FILE_WRAPPER
+          sed -i '/\.remap_file_range/d' $FILE_WRAPPER
+          sed -i '/\.fadvise/d' $FILE_WRAPPER
+          sed -i '/\.mmap_supported_flags/d' $FILE_WRAPPER
+          
           echo "Deep Patching completed successfully!"
+
 
 
       - name: Verify kernel source
