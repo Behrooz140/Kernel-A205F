@@ -189,7 +189,7 @@ jobs:
           set -e
 
           mkdir -p output/dtb
-          mkdir -p output/dtb/dtbo
+          mkdir -p output/dtbo
 
           echo "========================================"
           echo "Collecting kernel"
@@ -225,6 +225,7 @@ jobs:
           echo "========================================"
 
           find output -type f -exec ls -lh {} \;
+
 
       - name: Upload kernel artifact
         if: success()
