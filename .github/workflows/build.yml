@@ -178,10 +178,15 @@ jobs:
           cat "$SECCOMP_CACHE" >> temp_seccomp.c
           mv temp_seccomp.c "$SECCOMP_CACHE"
 
-          # 13. حل مشکلات Mount Namespace (فراخوانی کتابخانه استاندارد به جای حدس زدن تایپ)
+          # 13. حل مشکلات Mount Namespace
           SU_MOUNT="drivers/KernelSU-Next/kernel/infra/su_mount_ns.c"
           sed -i '1i #include <linux/err.h>\n#include <linux/syscalls.h>' "$SU_MOUNT"
           sed -i 's/ns_get_path(&ns_path, pid1_task, &mntns_operations)/PTR_ERR_OR_ZERO(ns_get_path(\&ns_path, pid1_task, \&mntns_operations))/g' "$SU_MOUNT"
+
+          # 14. حل مشکل Symbol Resolver (کستینگ عدد به پوینتر تابع)
+          SYMBOL_RESOLVER="drivers/KernelSU-Next/kernel/infra/symbol_resolver.c"
+          # هرجا مقداری از find_kernel_symbol_exact دریافت می‌شود، آن را به پوینتر (void *) تبدیل می‌کنیم
+          sed -i 's/= find_kernel_symbol_exact/= (void *)find_kernel_symbol_exact/g' "$SYMBOL_RESOLVER"
 
           echo "Deep Patching completed successfully!"
 
