@@ -104,10 +104,10 @@ jobs:
           sed -i '1i #include <linux/uaccess.h>' drivers/KernelSU-Next/kernel/hook/syscall_event_bridge.c
           
           # 9. حل مشکلات مدیریت حافظه (Memory Patching) در معماری ARM64
-          # تزریق تعاریف P4D به داخل فایل دقیقا در جایی که هدرهای کرنل خوانده شده‌اند
-          sed -i 's/.*phys_from_virt(.*/typedef pgd_t p4d_t;\n#define p4d_val(x) pgd_val(x)\n#define p4d_bad(x) 0\n#define p4d_none(x) 0\n#define p4d_offset(pgd, addr) ((p4d_t *)(pgd))\n#define __pte_to_phys(pte) (pte_pfn(pte) << PAGE_SHIFT)\n\n&/' drivers/KernelSU-Next/kernel/hook/arm64/patch_memory.c
+          # تزریق قطعی به خط ۱ فایل به همراه هدرهای ضروری برای جلوگیری از ارور typedef محلی
+          sed -i '1i #include <linux/mm.h>\n#include <asm/pgtable.h>\ntypedef pgd_t p4d_t __attribute__((unused));\n#define p4d_val(x) pgd_val(x)\n#define p4d_bad(x) 0\n#define p4d_none(x) 0\n#define p4d_offset(pgd, addr) ((p4d_t *)(pgd))\n#define __pte_to_phys(pte) (pte_pfn(pte) << PAGE_SHIFT)' drivers/KernelSU-Next/kernel/hook/arm64/patch_memory.c
           
-          # جایگزینی اصولی توابع کش با ذکر آرگومان‌های صحیح تا خطای بی‌اثر بودن برطرف شود
+          # جایگزینی اصولی توابع کش با ذکر آرگومان‌های صحیح
           sed -i 's/copy_to_kernel_nofault/probe_kernel_write/g' drivers/KernelSU-Next/kernel/hook/arm64/patch_memory.c
           sed -i 's/#define ksu_flush_icache.*/#define ksu_flush_icache(start, end) flush_icache_range(start, end)/g' drivers/KernelSU-Next/kernel/hook/arm64/patch_memory.c
           sed -i 's/void \*map = set_fixmap_offset/void \*map = (void \*)set_fixmap_offset/g' drivers/KernelSU-Next/kernel/hook/arm64/patch_memory.c
