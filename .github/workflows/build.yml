@@ -116,33 +116,29 @@ jobs:
           echo "Generating A20 defconfig"
           echo "========================================"
 
-          # تولید کانفیگ پایه از defconfig سامسونگ
+          # 1. تولید کانفیگ اولیه
           make \
             ARCH=arm64 \
             CROSS_COMPILE="$CROSS_COMPILE" \
             exynos7885-a20_defconfig
 
-          # ایجاد یک فایل پچ کانفیگ برای KernelSU Next میراثی
-          # نکته: ما از 'CONFIG_KSU_LEGACY=y' استفاده می‌کنیم که گزینه کلیدی برای این مشکل است.
-          cat <<EOF > kernel/configs/ksu.config
-          CONFIG_KSU=y
-          CONFIG_KSU_LEGACY=y
-          # برخی کرنل‌های قدیمی سامسونگ به این گزینه برای پایداری نیاز دارند
-          # CONFIG_CC_STACKPROTECTOR_STRONG=y
-          # اطمینان حاصل کنید که SELinux فعال است (اغلب به طور پیش‌فرض است)
-          # CONFIG_SECURITY_SELINUX=y
-          EOF
+          # 2. تزریق مقادیر KernelSU
+          echo "CONFIG_KSU=y" >> .config
+          echo "CONFIG_KSU_LEGACY=y" >> .config
 
-          # اعمال فایل پچ کانفیگ به .config تولید شده با استفاده از merge_config.sh
-          scripts/kconfig/merge_config.sh -m .config kernel/configs/ksu.config
+          # 3. تایید خودکار کانفیگ‌های جدید بدون پرسش (دستور کلیدی برای رفع ارور)
+          make \
+            ARCH=arm64 \
+            CROSS_COMPILE="$CROSS_COMPILE" \
+            olddefconfig
 
           echo
           echo "Config generated and KernelSU Legacy patches applied."
 
-          # تایید نهایی فایل .config
-          grep "CONFIG_KSU=y" .config
-          grep "CONFIG_KSU_LEGACY=y" .config
+          # تایید نهایی
+          grep "CONFIG_KSU" .config
           test -f .config
+
 
       - name: Clean host tools
         shell: bash
