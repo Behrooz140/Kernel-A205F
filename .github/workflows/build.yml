@@ -124,23 +124,23 @@ jobs:
           #define selinux_inode(a) NULL
           typedef unsigned int __poll_t;
           EOF
-          cat \$FILE_WRAPPER >> temp_wrapper.c
-          mv temp_wrapper.c \$FILE_WRAPPER
+          cat "$FILE_WRAPPER" >> temp_wrapper.c
+          mv temp_wrapper.c "$FILE_WRAPPER"
           
           # حذف کامل بلوک‌های تخصیص نامعتبر (پاک کردن از شروع کلمه تا رسیدن به اولین سمی‌کالن)
-          sed -i '/p->ops\.iopoll/,/;/d' \$FILE_WRAPPER
-          sed -i '/p->ops\.iterate_shared/,/;/d' \$FILE_WRAPPER
-          sed -i '/p->ops\.copy_file_range/,/;/d' \$FILE_WRAPPER
-          sed -i '/p->ops\.remap_file_range/,/;/d' \$FILE_WRAPPER
-          sed -i '/p->ops\.fadvise/,/;/d' \$FILE_WRAPPER
-          sed -i '/p->ops\.mmap_supported_flags/,/;/d' \$FILE_WRAPPER
+          sed -i '/p->ops\.iopoll/,/;/d' "$FILE_WRAPPER"
+          sed -i '/p->ops\.iterate_shared/,/;/d' "$FILE_WRAPPER"
+          sed -i '/p->ops\.copy_file_range/,/;/d' "$FILE_WRAPPER"
+          sed -i '/p->ops\.remap_file_range/,/;/d' "$FILE_WRAPPER"
+          sed -i '/p->ops\.fadvise/,/;/d' "$FILE_WRAPPER"
+          sed -i '/p->ops\.mmap_supported_flags/,/;/d' "$FILE_WRAPPER"
           
           # تبدیل فراخوانی توابع ناموجود به پوینترهای خالیِ امن در زبان C
-          sed -i 's/orig->f_op->iopoll/((long (*)())0)/g' \$FILE_WRAPPER
-          sed -i 's/orig->f_op->iterate_shared/((long (*)())0)/g' \$FILE_WRAPPER
-          sed -i 's/orig->f_op->copy_file_range/((long (*)())0)/g' \$FILE_WRAPPER
-          sed -i 's/orig->f_op->remap_file_range/((long (*)())0)/g' \$FILE_WRAPPER
-          sed -i 's/orig->f_op->fadvise/((long (*)())0)/g' \$FILE_WRAPPER
+          sed -i 's/orig->f_op->iopoll/((long (*)())0)/g' "$FILE_WRAPPER"
+          sed -i 's/orig->f_op->iterate_shared/((long (*)())0)/g' "$FILE_WRAPPER"
+          sed -i 's/orig->f_op->copy_file_range/((long (*)())0)/g' "$FILE_WRAPPER"
+          sed -i 's/orig->f_op->remap_file_range/((long (*)())0)/g' "$FILE_WRAPPER"
+          sed -i 's/orig->f_op->fadvise/((long (*)())0)/g' "$FILE_WRAPPER"
           
           echo "Deep Patching completed successfully!"
 
