@@ -74,10 +74,13 @@ jobs:
           find drivers/KernelSU-Next/kernel -type f -name "Makefile" -exec sed -i 's/-Werror//g' {} +
           
           # 3. تعریف دستیِ نوع داده syscall_fn_t که در کرنل 4.4 وجود ندارد
-          # ما این تعریف را به بالاترین خط فایل هدر مربوطه تزریق می‌کنیم
           sed -i '1i typedef void* syscall_fn_t;' drivers/KernelSU-Next/kernel/hook/syscall_hook.h
           
+          # 4. حل مشکل فایل هدر: جایگزینی فایل مدرن با فایل سازگار در کرنل 4.4
+          find drivers/KernelSU-Next/kernel -type f -name "*.[ch]" -exec sed -i 's/linux\/compiler_types.h/linux\/compiler.h/g' {} +
+          
           echo "Patching completed successfully!"
+
 
       - name: Verify kernel source
         shell: bash
