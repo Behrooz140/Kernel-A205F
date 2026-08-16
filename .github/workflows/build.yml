@@ -584,6 +584,45 @@ jobs:
           echo "========================================"
 
 
+
+      - name: Check KSU Manager Configuration
+        run: |
+          set -e
+
+          echo "========================================"
+          echo " KSU MANAGER CONFIGURATION"
+          echo "========================================"
+
+          echo
+          echo "===== CONFIG ====="
+
+          grep -E \
+            '^CONFIG_KSU=|^CONFIG_KSU_DISABLE_MANAGER=|^CONFIG_KSU_DEBUG=' \
+            .config \
+            || true
+
+          echo
+          echo "===== MANAGER IDENTITY ====="
+
+          sed -n '1,90p' \
+            drivers/kernelsu/manager/manager_identity.h
+
+          echo
+          echo "===== MANAGER PACKAGE CONFIG ====="
+
+          grep -RniE \
+            'KSU_MANAGER_PACKAGE|CONFIG_KSU_MANAGER' \
+            drivers/kernelsu \
+            2>/dev/null \
+            | head -100 \
+            || true
+
+          echo
+          echo "========================================"
+          echo " MANAGER CONFIGURATION CHECK DONE"
+          echo "========================================"
+
+
       - name: Build kernel
         run: |
           set -e
