@@ -1,4 +1,4 @@
-name: Build A205F Kernel + APatch (APM + KPM)
+name: Build A205F Kernel
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ permissions:
 
 jobs:
   build:
-    name: Build Kernel + APatch
+    name: Build Kernel
     runs-on: ubuntu-22.04
 
     env:
@@ -26,189 +26,194 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc bison build-essential ccache flex git libelf-dev libncurses5-dev libssl-dev lz4 python3 rsync unzip zip curl
 
-      - name: Pre-build KernelPatch + APatch Core (v1.0.2)
+          sudo apt-get install -y \
+            bc \
+            bison \
+            build-essential \
+            ccache \
+            flex \
+            git \
+            libelf-dev \
+            libncurses5-dev \
+            libssl-dev \
+            lz4 \
+            python3 \
+            rsync \
+            unzip \
+            zip
+
+      - name: Verify kernel source
+        shell: bash
         run: |
           set -e
-          echo "Pre-building KernelPatch + APatch Core..."
-          curl -LSs "https://raw.githubusercontent.com/bmax121/APatch/main/kernel/setup.sh" | bash -s builtin
-          echo "KernelPatch + APatch done. Directory: $(ls -d KernelPatch 2>/dev/null || ls -d drivers/kernelsu 2>/dev/null)"
 
-      - name: Fix APatch for old GCC 4.9 and kernel 4.4
-        run: |
-          set -e
-          echo "Fixing APatch for GCC 4.9 + kernel 4.4..."
+          echo "========================================"
+          echo "Kernel source"
+          echo "========================================"
 
-          # 1. Remove unsupported flags
-          find drivers/kernelsu -type f \( -name "Makefile" -o -name "Kbuild" -o -name "*.mk" \) 2>/dev/null | while read f; do
-            sed -i 's/-Wno-gcc-compat//g' "$f" || true
-            sed -i 's/-Wno-int-conversion//g' "$f" || true
-            sed -i 's/-Wno-implicit-function-declaration//g' "$f" || true
-          done
-
-          # 2. Force no-error
-          if [ -f drivers/kernelsu/Kbuild ]; then
-            if ! grep -q "Wno-error" drivers/kernelsu/Kbuild; then
-              echo "ccflags-y += -Wno-error -Wno-implicit-function-declaration -Wno-declaration-after-statement -Wno-pointer-arith" >> drivers/kernelsu/Kbuild
-            fi
-          fi
-
-          # 3. Fix in_compat_syscall (4.4)
-          for f in drivers/kernelsu/sulog/event.c drivers/kernelsu/runtime/ksud_integration.c; do
-            if [ -f "$f" ] && ! grep -q "define in_compat_syscall" "$f"; then
-              sed -i '1i#ifndef in_compat_syscall\n#define in_compat_syscall() is_compat_task()\n#endif' "$f"
-              echo "patched in_compat_syscall in $f"
-            fi
-          done
-
-          # 4. Fix __nocfi
-          for f in drivers/kernelsu/feature/selinux_hide.c drivers/kernelsu/feature/*.c; do
-            if [ -f "$f" ] && grep -q "__nocfi" "$f" && ! grep -q "define __nocfi" "$f"; then
-              sed -i '1i#ifndef __nocfi\n#define __nocfi\n#endif' "$f"
-              echo "patched __nocfi in $f"
-            fi
-          done
-
-          # 5. Other small fixes
-          if [ -f drivers/kernelsu/infra/su_mount_ns.c ]; then
-            sed -i 's/long ret = ns_get_path(/long ret = (long)ns_get_path(/g' drivers/kernelsu/infra/su_mount_ns.c || true
-            echo "patched su_mount_ns.c"
-          fi
-
-          if [ -f drivers/kernelsu/runtime/ksud_integration.c ]; then
-            sed -i 's/copy_to_iter(KERNEL_SU_RC + ksu_rc_pos/copy_to_iter((void *)(KERNEL_SU_RC + ksu_rc_pos)/g' drivers/kernelsu/runtime/ksud_integration.c || true
-            echo "patched ksud_integration.c"
-          fi
-
-          if [ -f drivers/kernelsu/feature/adb_root.c ]; then
-            if ! grep -q "define ALIGN_DOWN" drivers/kernelsu/feature/adb_root.c; then
-              sed -i '1i#ifndef ALIGN_DOWN\n#define ALIGN_DOWN(x, a) ((x) & \~((typeof(x))(a) - 1))\n#endif' drivers/kernelsu/feature/adb_root.c
-              echo "patched ALIGN_DOWN in adb_root.c"
-            fi
-          fi
-
-          echo "Compatibility fixes applied"
-
-      - name: Apply Manual Hooks (same as before)
-        run: |
-          set -e
-          cat > /tmp/apply_hooks.py << 'EOF'
-          import os
-
-          def patch(path, old, new):
-              if not os.path.exists(path):
-                  print("[!] missing:", path)
-                  return
-              with open(path, "r", encoding="utf-8", errors="ignore") as f:
-                  data = f.read()
-              if old not in data:
-                  print("[*] pattern not found:", path)
-                  return
-              with open(path, "w", encoding="utf-8") as f:
-                  f.write(data.replace(old, new, 1))
-              print("[+] patched:", path)
-
-          # fs/exec.c
-          patch("fs/exec.c",
-          "int do_execve(struct filename *filename,\n"
-          "\tconst char __user *const __user *__argv,\n"
-          "\tconst char __user *const __user *__envp)\n"
-          "{\n"
-          "\tstruct user_arg_ptr argv = { .ptr.native = __argv };\n"
-          "\tstruct user_arg_ptr envp = { .ptr.native = __envp };\n",
-          "#ifdef CONFIG_KSU\n"
-          "__attribute__((hot))\n"
-          "extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr,\n"
-          "\t\t\t\tvoid *argv, void *envp, int *flags);\n"
-          "#endif\n"
-          "int do_execve(struct filename *filename,\n"
-          "\tconst char __user *const __user *__argv,\n"
-          "\tconst char __user *const __user *__envp)\n"
-          "{\n"
-          "\tstruct user_arg_ptr argv = { .ptr.native = __argv };\n"
-          "\tstruct user_arg_ptr envp = { .ptr.native = __envp };\n"
-          "#ifdef CONFIG_KSU\n"
-          "\tksu_handle_execveat((int *)AT_FDCWD, &filename, &argv, &envp, 0);\n"
-          "#endif\n")
-
-          # بقیه hooks (faccessat, read, stat, reboot) مثل قبل نگه داشتم
-          # (برای کامل بودن، همون کد قبلی رو کپی کردم)
-          EOF
-
-          python3 /tmp/apply_hooks.py
-
-      - name: Add APatch configs
-        run: |
-          set -e
-          DEFCONFIG="arch/arm64/configs/exynos7885-a20_defconfig"
-          sed -i '/CONFIG_KSU/d' "$DEFCONFIG"
-          sed -i '/CONFIG_KPROBE/d' "$DEFCONFIG"
-          sed -i '/CONFIG_KALLSYMS/d' "$DEFCONFIG"
-          cat >> "$DEFCONFIG" << 'EOF'
-
-          # APatch (APM + KPM)
-          CONFIG_KALLSYMS=y
-          CONFIG_KALLSYMS_ALL=y
-          EOF
-          echo "configs added"
-          tail -12 "$DEFCONFIG"
-
-      - name: Verify
-        run: |
-          set -e
           test -f Makefile
           test -f arch/arm64/configs/exynos7885-a20_defconfig
+
           TOOLCHAIN="$GITHUB_WORKSPACE/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9"
+
+          test -d "$TOOLCHAIN"
           test -x "$TOOLCHAIN/bin/aarch64-linux-android-gcc"
+
+          echo "Toolchain:"
           "$TOOLCHAIN/bin/aarch64-linux-android-gcc" --version
+
+          echo
+          echo "Kernel version:"
           make kernelversion
-          test -d KernelPatch || test -d drivers/kernelsu
-          echo "APatch directory found."
-          grep -q "kpatch" kernel/reboot.c || echo "[OK] kpatch found" || echo "[WARN] kpatch"
 
       - name: Configure
+        shell: bash
         run: |
           set -e
+
           TOOLCHAIN="$GITHUB_WORKSPACE/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9"
+
           export PATH="$TOOLCHAIN/bin:$PATH"
           export CROSS_COMPILE="$TOOLCHAIN/bin/aarch64-linux-android-"
-          make ARCH=arm64 CROSS_COMPILE="$CROSS_COMPILE" exynos7885-a20_defconfig
-          grep -E "CONFIG_KALLSYMS|CONFIG_KSU" .config || true
+
+          echo "========================================"
+          echo "Generating A20 defconfig"
+          echo "========================================"
+
+          make \
+            ARCH=arm64 \
+            CROSS_COMPILE="$CROSS_COMPILE" \
+            exynos7885-a20_defconfig
+
+          echo
+          echo "Config generated successfully."
+
+          test -f .config
 
       - name: Clean host tools
+        shell: bash
         run: |
-          rm -f scripts/dtc/dtc scripts/dtc/*.o scripts/dtc/dtc-lexer.lex.o scripts/dtc/dtc-parser.tab.o
+          rm -f scripts/dtc/dtc
+          rm -f scripts/dtc/*.o
+          rm -f scripts/dtc/dtc-lexer.lex.o
+          rm -f scripts/dtc/dtc-parser.tab.o
 
       - name: Build kernel
+        shell: bash
         run: |
           set -e
+
           TOOLCHAIN="$GITHUB_WORKSPACE/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9"
+
           export PATH="$TOOLCHAIN/bin:$PATH"
           export CROSS_COMPILE="$TOOLCHAIN/bin/aarch64-linux-android-"
+
+          # Old Samsung kernel DTC requires GCC common-symbol behavior.
           export HOSTCFLAGS="-fcommon"
           export HOSTCXXFLAGS="-fcommon"
-          JOBS=$(nproc)
-          echo "Using $JOBS jobs"
-          make ARCH=arm64 CROSS_COMPILE="$CROSS_COMPILE" HOSTCFLAGS="$HOSTCFLAGS" HOSTCXXFLAGS="$HOSTCXXFLAGS" -j$JOBS
+
+          echo "========================================"
+          echo "Building A205F kernel"
+          echo "========================================"
+
+          echo "ARCH=$ARCH"
+          echo "CROSS_COMPILE=$CROSS_COMPILE"
+          echo "HOSTCFLAGS=$HOSTCFLAGS"
+
+          make \
+            ARCH=arm64 \
+            CROSS_COMPILE="$CROSS_COMPILE" \
+            HOSTCFLAGS="$HOSTCFLAGS" \
+            HOSTCXXFLAGS="$HOSTCXXFLAGS" \
+            -j"$(nproc)"
+
+      - name: Verify build output
+        if: always()
+        shell: bash
+        run: |
+          echo "========================================"
+          echo "Build output"
+          echo "========================================"
+
+          echo
+          echo "Image:"
+          ls -lh arch/arm64/boot/Image 2>/dev/null || true
+
+          echo
+          echo "Compressed images:"
+          find arch/arm64/boot \
+            -maxdepth 1 \
+            -type f \
+            \( -name 'Image*' -o -name 'zImage' \) \
+            -exec ls -lh {} \; \
+            2>/dev/null || true
+
+          echo
+          echo "DTB files:"
+          find arch/arm64/boot/dts \
+            -type f \
+            -name '*.dtb' \
+            -exec ls -lh {} \; \
+            2>/dev/null || true
+
+          echo
+          echo "DTBO files:"
+          find arch/arm64/boot/dts \
+            -type f \
+            -name '*.dtbo' \
+            -exec ls -lh {} \; \
+            2>/dev/null || true
 
       - name: Package artifacts
         if: success()
+        shell: bash
         run: |
           set -e
-          mkdir -p output/dtb output/dtbo
+
+          mkdir -p output/dtb
+          mkdir -p output/dtbo
+
+          echo "========================================"
+          echo "Collecting kernel"
+          echo "========================================"
+
+          test -f arch/arm64/boot/Image
+
           cp -v arch/arm64/boot/Image output/Image
-          [ -f arch/arm64/boot/Image.gz ] && cp -v arch/arm64/boot/Image.gz output/Image.gz || true
-          find arch/arm64/boot/dts -type f -name '*.dtb' -exec cp -v {} output/dtb/ \; 2>/dev/null || true
-          find arch/arm64/boot/dts -type f -name '*.dtbo' -exec cp -v {} output/dtbo/ \; 2>/dev/null || true
+
+          if [ -f arch/arm64/boot/Image.gz ]; then
+            cp -v arch/arm64/boot/Image.gz output/Image.gz
+          fi
+
+          if [ -d arch/arm64/boot/dts ]; then
+            find arch/arm64/boot/dts \
+              -type f \
+              -name '*.dtb' \
+              -exec cp -v {} output/dtb/ \; \
+              || true
+
+            find arch/arm64/boot/dts \
+              -type f \
+              -name '*.dtbo' \
+              -exec cp -v {} output/dtbo/ \; \
+              || true
+          fi
+
           cp -v .config output/kernel.config
+
+          echo
+          echo "========================================"
+          echo "Final artifacts"
+          echo "========================================"
+
           find output -type f -exec ls -lh {} \;
 
-      - name: Upload artifact
+      - name: Upload kernel artifact
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: A205F-kernel-APatch
+          name: A205F-kernel
           path: output/
           if-no-files-found: error
           retention-days: 14
