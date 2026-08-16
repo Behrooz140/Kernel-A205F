@@ -59,19 +59,19 @@ jobs:
           echo "Applying Manual Hooks (required for kernel 4.4)"
           echo "========================================"
 
-          # ---------- 1. fs/exec.c ----------
+          # 1. fs/exec.c
           if ! grep -q "ksu_handle_execveat" fs/exec.c; then
             sed -i '/^int do_execve(struct filename \*filename,/i\
 #ifdef CONFIG_KSU\n\
 __attribute__((hot))\n\
 extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr,\n\
-\t\t\t\tvoid *argv, void *envp, int *flags);\n\
+				void *argv, void *envp, int *flags);\n\
 #endif' fs/exec.c
 
             sed -i '/^int do_execve(struct filename \*filename,/,/^}$/{
               /struct user_arg_ptr envp = { .ptr.native = __envp };/a\
 #ifdef CONFIG_KSU\n\
-\tksu_handle_execveat((int *)AT_FDCWD, \&filename, \&argv, \&envp, 0);\n\
+	ksu_handle_execveat((int *)AT_FDCWD, \&filename, \&argv, \&envp, 0);\n\
 #endif
             }' fs/exec.c
 
@@ -79,7 +79,7 @@ extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr,\n\
               sed -i '/compat_do_execve/,/^}$/{
                 /\.is_compat = true,/a\
 #ifdef CONFIG_KSU\n\
-\tksu_handle_execveat((int *)AT_FDCWD, \&filename, \&argv, \&envp, 0);\n\
+	ksu_handle_execveat((int *)AT_FDCWD, \&filename, \&argv, \&envp, 0);\n\
 #endif
               }' fs/exec.c
             fi
@@ -88,19 +88,19 @@ extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr,\n\
             echo "[*] fs/exec.c already patched"
           fi
 
-          # ---------- 2. fs/open.c ----------
+          # 2. fs/open.c
           if ! grep -q "ksu_handle_faccessat" fs/open.c; then
             sed -i '/SYSCALL_DEFINE3(faccessat,/i\
 #ifdef CONFIG_KSU\n\
 __attribute__((hot))\n\
 extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user,\n\
-\t\t\t\tint *mode, int *flags);\n\
+				int *mode, int *flags);\n\
 #endif' fs/open.c
 
             sed -i '/SYSCALL_DEFINE3(faccessat,/,/^}$/{
               /unsigned int lookup_flags = LOOKUP_FOLLOW;/a\
 #ifdef CONFIG_KSU\n\
-\tksu_handle_faccessat(\&dfd, \&filename, \&mode, NULL);\n\
+	ksu_handle_faccessat(\&dfd, \&filename, \&mode, NULL);\n\
 #endif
             }' fs/open.c
             echo "[+] fs/open.c patched"
@@ -108,20 +108,20 @@ extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user,\n\
             echo "[*] fs/open.c already patched"
           fi
 
-          # ---------- 3. fs/read_write.c ----------
+          # 3. fs/read_write.c
           if ! grep -q "ksu_handle_sys_read" fs/read_write.c; then
             sed -i '/SYSCALL_DEFINE3(read,/i\
 #ifdef CONFIG_KSU\n\
 extern bool ksu_vfs_read_hook __read_mostly;\n\
 extern __attribute__((cold)) int ksu_handle_sys_read(unsigned int fd,\n\
-\t\t\t\tchar __user **buf_ptr, size_t *count_ptr);\n\
+				char __user **buf_ptr, size_t *count_ptr);\n\
 #endif' fs/read_write.c
 
             sed -i '/SYSCALL_DEFINE3(read,/,/^}$/{
               /struct fd f = fdget_pos(fd);/a\
 #ifdef CONFIG_KSU\n\
-\tif (unlikely(ksu_vfs_read_hook))\n\
-\t\tksu_handle_sys_read(fd, \&buf, \&count);\n\
+	if (unlikely(ksu_vfs_read_hook))\n\
+		ksu_handle_sys_read(fd, \&buf, \&count);\n\
 #endif
             }' fs/read_write.c
             echo "[+] fs/read_write.c patched"
@@ -129,19 +129,19 @@ extern __attribute__((cold)) int ksu_handle_sys_read(unsigned int fd,\n\
             echo "[*] fs/read_write.c already patched"
           fi
 
-          # ---------- 4. fs/stat.c ----------
+          # 4. fs/stat.c
           if ! grep -q "ksu_handle_stat" fs/stat.c; then
             sed -i '/SYSCALL_DEFINE4(newfstatat,/i\
 #ifdef CONFIG_KSU\n\
 __attribute__((hot))\n\
 extern int ksu_handle_stat(int *dfd, const char __user **filename_user,\n\
-\t\t\t\tint *flags);\n\
+				int *flags);\n\
 #endif' fs/stat.c
 
             sed -i '/SYSCALL_DEFINE4(newfstatat,/,/^}$/{
               /struct kstat stat;/a\
 #ifdef CONFIG_KSU\n\
-\tksu_handle_stat(\&dfd, \&filename, \&flag);\n\
+	ksu_handle_stat(\&dfd, \&filename, \&flag);\n\
 #endif
             }' fs/stat.c
             echo "[+] fs/stat.c patched"
@@ -149,7 +149,7 @@ extern int ksu_handle_stat(int *dfd, const char __user **filename_user,\n\
             echo "[*] fs/stat.c already patched"
           fi
 
-          # ---------- 5. kernel/reboot.c (required by Kbuild check) ----------
+          # 5. kernel/reboot.c (required by Kbuild check)
           if ! grep -q "ksu_handle_sys_reboot" kernel/reboot.c; then
             sed -i '/SYSCALL_DEFINE4(reboot,/i\
 #ifdef CONFIG_KSU\n\
@@ -159,7 +159,7 @@ extern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void 
             sed -i '/SYSCALL_DEFINE4(reboot,/,/^}$/{
               /struct pid_namespace \*pid_ns = task_active_pid_ns(current);/a\
 #ifdef CONFIG_KSU\n\
-\tksu_handle_sys_reboot(magic1, magic2, cmd, \&arg);\n\
+	ksu_handle_sys_reboot(magic1, magic2, cmd, \&arg);\n\
 #endif
             }' kernel/reboot.c
             echo "[+] kernel/reboot.c patched"
@@ -170,7 +170,7 @@ extern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void 
           echo
           echo "Manual hooks applied successfully."
 
-          # ---------- Add configs to defconfig ----------
+          # Add configs to defconfig
           DEFCONFIG="arch/arm64/configs/exynos7885-a20_defconfig"
 
           if [ ! -f "$DEFCONFIG" ]; then
