@@ -319,6 +319,64 @@ jobs:
           echo "========================================"
 
 
+
+      - name: Verify KernelSU App Profile ABI
+        run: |
+          set -e
+
+          echo "========================================"
+          echo " KSU APP PROFILE ABI"
+          echo "========================================"
+
+          echo
+          echo "===== STRUCT app_profile ====="
+
+          grep -n -A120 -B10 \
+            'struct app_profile' \
+            drivers/kernelsu/include/uapi/app_profile.h \
+            2>/dev/null \
+            | head -160 || true
+
+          echo
+          echo "===== STRUCT ksu_set_app_profile_cmd ====="
+
+          grep -Rni -A80 -B10 \
+            'struct ksu_set_app_profile_cmd' \
+            drivers/kernelsu/include \
+            2>/dev/null \
+            | head -120 || true
+
+          echo
+          echo "===== SET APP PROFILE IOCTL ====="
+
+          grep -Rni -A20 -B20 \
+            'KSU_IOCTL_SET_APP_PROFILE' \
+            drivers/kernelsu/include \
+            2>/dev/null \
+            | head -100 || true
+
+          echo
+          echo "===== APP PROFILE SIZE ====="
+
+          grep -RniE \
+            'sizeof\(struct app_profile\)|kAppProfileSizePreV4|KSU_APP_PROFILE_VER' \
+            drivers/kernelsu \
+            2>/dev/null \
+            | head -150 || true
+
+          echo
+          echo "===== APP PROFILE MIGRATION ====="
+
+          sed -n '520,610p' \
+            drivers/kernelsu/policy/allowlist.c \
+            2>/dev/null || true
+
+          echo
+          echo "========================================"
+          echo " ABI analysis completed"
+          echo "========================================"
+
+
       - name: Clean host tools
         run: |
           rm -f scripts/dtc/dtc scripts/dtc/*.o scripts/dtc/dtc-lexer.lex.o scripts/dtc/dtc-parser.tab.o
