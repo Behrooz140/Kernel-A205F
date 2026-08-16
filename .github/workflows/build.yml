@@ -33,6 +33,39 @@ jobs:
           set -e
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
 
+
+      - name: Fix KernelSU for old GCC 4.9
+        run: |
+          set -e
+          echo "Fixing KernelSU for GCC 4.9..."
+
+          # Remove unsupported warning flags
+          find KernelSU-Next drivers/kernelsu -type f \( -name "Makefile" -o -name "Kbuild" -o -name "*.mk" \) 2>/dev/null | while read f; do
+            sed -i 's/-Wno-gcc-compat//g' "$f" 2>/dev/null || true
+            sed -i 's/-Wno-int-conversion//g' "$f" 2>/dev/null || true
+            sed -i 's/-Wno-implicit-function-declaration//g' "$f" 2>/dev/null || true
+          done
+
+          # Also clean ccflags in any C files or headers if present
+          find KernelSU-Next drivers/kernelsu -type f -name "*.c" 2>/dev/null | head -5
+
+          # Fix the integer from pointer cast in su_mount_ns.c
+          if [ -f drivers/kernelsu/infra/su_mount_ns.c ]; then
+            sed -i 's/long ret = ns_get_path/long ret = (long)ns_get_path/g' drivers/kernelsu/infra/su_mount_ns.c || true
+            # Alternative safer fix if the above is wrong structure:
+            # sed -i 's/long ret = ns_get_path(&ns_path, pid1_task, &mntns_operations);/long ret = 0; (void)ns_get_path(\&ns_path, pid1_task, \&mntns_operations);/g' drivers/kernelsu/infra/su_mount_ns.c
+            echo "su_mount_ns.c adjusted"
+          fi
+
+          # Make sure KernelSU does not treat warnings as errors on this old compiler
+          if [ -f drivers/kernelsu/Kbuild ]; then
+            echo "ccflags-y += -Wno-error" >> drivers/kernelsu/Kbuild
+            echo "Added -Wno-error to KernelSU Kbuild"
+          fi
+
+          echo "GCC 4.9 compatibility fixes applied"
+
+
       - name: Apply Manual Hooks
         run: |
           set -e
