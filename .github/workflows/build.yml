@@ -232,8 +232,18 @@ jobs:
         run: |
           set -e
           DEFCONFIG="arch/arm64/configs/exynos7885-a20_defconfig"
+          
+          # پاکسازی کانفیگ‌های قبلی و امنیتی سامسونگ
           sed -i '/CONFIG_KSU/d' "$DEFCONFIG"
           sed -i '/CONFIG_KPROBE/d' "$DEFCONFIG"
+          sed -i '/CONFIG_SECURITY_DEFEX/d' "$DEFCONFIG"
+          sed -i '/CONFIG_SECURITY_DSMS/d' "$DEFCONFIG"
+          sed -i '/CONFIG_TIMA/d' "$DEFCONFIG"
+          sed -i '/CONFIG_KNOX_KAP/d' "$DEFCONFIG"
+          sed -i '/CONFIG_RKP_KDP/d' "$DEFCONFIG"
+          sed -i '/CONFIG_RKP_CFP/d' "$DEFCONFIG"
+          sed -i '/CONFIG_SAMSUNG_FREECESS/d' "$DEFCONFIG"
+          
           cat >> "$DEFCONFIG" << 'EOF'
 
           # KernelSU Next (Manual Hooks for 4.4)
@@ -242,16 +252,12 @@ jobs:
           # CONFIG_KSU_KPROBES_HOOK is not set
 
           # ==========================================
-          # REQUIRED FEATURES FOR MODULES AND SAVING
-          # ==========================================
-          # 1. OverlayFS for Modules support
+          # 1. OverlayFS & Loop for Modules
           CONFIG_OVERLAY_FS=y
-
-          # 2. Loop Device for mounting module images
           CONFIG_BLK_DEV_LOOP=y
           CONFIG_BLK_DEV_LOOP_MIN_COUNT=16
 
-          # 3. Namespaces for Root App Persistence and Isolation
+          # 2. Namespaces for Root App Persistence
           CONFIG_NAMESPACES=y
           CONFIG_USER_NS=y
           CONFIG_IPC_NS=y
@@ -259,16 +265,26 @@ jobs:
           CONFIG_PID_NS=y
           CONFIG_MULTIUSER=y
 
-          # 4. TMPFS for temporary system interactions
+          # 3. TMPFS & Config Reader
           CONFIG_TMPFS=y
           CONFIG_TMPFS_POSIX_ACL=y
-
-          # 5. Config Reader for Manager app (Optional but recommended)
           CONFIG_IKCONFIG=y
           CONFIG_IKCONFIG_PROC=y
+          
+          # ==========================================
+          # 4. DISABLE SAMSUNG KNOX / DEFEX (CRITICAL FOR KSUD)
+          # ==========================================
+          # CONFIG_SECURITY_DEFEX is not set
+          # CONFIG_SECURITY_DSMS is not set
+          # CONFIG_TIMA is not set
+          # CONFIG_KNOX_KAP is not set
+          # CONFIG_RKP_KDP is not set
+          # CONFIG_RKP_CFP is not set
+          # CONFIG_SAMSUNG_FREECESS is not set
           EOF
           echo "configs added"
-          tail -20 "$DEFCONFIG"
+          tail -35 "$DEFCONFIG"
+
 
 
       - name: Verify
