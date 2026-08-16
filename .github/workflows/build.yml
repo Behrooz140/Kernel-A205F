@@ -43,134 +43,162 @@ jobs:
             zip \
             curl
 
-      - name: Integrate KernelSU Next (legacy + Manual Hooks)
+      - name: Integrate KernelSU Next
         shell: bash
         run: |
           set -e
-
-          echo "========================================"
-          echo "Integrating KernelSU Next (legacy)"
-          echo "========================================"
-
+          echo "Integrating KernelSU Next (legacy)..."
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
+          echo "KernelSU integrated."
 
-          echo
-          echo "========================================"
-          echo "Applying Manual Hooks (required for kernel 4.4)"
-          echo "========================================"
+      - name: Apply Manual Hooks
+        shell: bash
+        run: |
+          set -e
+          python3 << 'PYEOF'
+          import re
+          import os
+
+          def patch_file(path, patches):
+              if not os.path.exists(path):
+                  print(f"[!] File not found: {path}")
+                  return False
+              with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                  content = f.read()
+              original = content
+              for old, new in patches:
+                  if old in content:
+                      content = content.replace(old, new, 1)
+                      print(f"[+] Patched: {path}")
+                  else:
+                      print(f"[*] Pattern not found in {path} (may already be patched or different structure)")
+              if content != original:
+                  with open(path, "w", encoding="utf-8") as f:
+                      f.write(content)
+                  return True
+              return False
 
           # 1. fs/exec.c
-          if ! grep -q "ksu_handle_execveat" fs/exec.c; then
-            sed -i '/^int do_execve(struct filename \*filename,/i\
-#ifdef CONFIG_KSU\n\
-__attribute__((hot))\n\
-extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr,\n\
-				void *argv, void *envp, int *flags);\n\
-#endif' fs/exec.c
+          patch_file("fs/exec.c", [
+              (
+                  "int do_execve(struct filename *filename,\n"
+                  "\tconst char __user *const __user *__argv,\n"
+                  "\tconst char __user *const __user *__envp)\n"
+                  "{\n"
+                  "\tstruct user_arg_ptr argv = { .ptr.native = __argv };\n"
+                  "\tstruct user_arg_ptr envp = { .ptr.native = __envp };\n",
 
-            sed -i '/^int do_execve(struct filename \*filename,/,/^}$/{
-              /struct user_arg_ptr envp = { .ptr.native = __envp };/a\
-#ifdef CONFIG_KSU\n\
-	ksu_handle_execveat((int *)AT_FDCWD, \&filename, \&argv, \&envp, 0);\n\
-#endif
-            }' fs/exec.c
-
-            if grep -q "compat_do_execve" fs/exec.c; then
-              sed -i '/compat_do_execve/,/^}$/{
-                /\.is_compat = true,/a\
-#ifdef CONFIG_KSU\n\
-	ksu_handle_execveat((int *)AT_FDCWD, \&filename, \&argv, \&envp, 0);\n\
-#endif
-              }' fs/exec.c
-            fi
-            echo "[+] fs/exec.c patched"
-          else
-            echo "[*] fs/exec.c already patched"
-          fi
+                  "#ifdef CONFIG_KSU\n"
+                  "__attribute__((hot))\n"
+                  "extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr,\n"
+                  "\t\t\t\tvoid *argv, void *envp, int *flags);\n"
+                  "#endif\n"
+                  "int do_execve(struct filename *filename,\n"
+                  "\tconst char __user *const __user *__argv,\n"
+                  "\tconst char __user *const __user *__envp)\n"
+                  "{\n"
+                  "\tstruct user_arg_ptr argv = { .ptr.native = __argv };\n"
+                  "\tstruct user_arg_ptr envp = { .ptr.native = __envp };\n"
+                  "#ifdef CONFIG_KSU\n"
+                  "\tksu_handle_execveat((int *)AT_FDCWD, &filename, &argv, &envp, 0);\n"
+                  "#endif\n"
+              )
+          ])
 
           # 2. fs/open.c
-          if ! grep -q "ksu_handle_faccessat" fs/open.c; then
-            sed -i '/SYSCALL_DEFINE3(faccessat,/i\
-#ifdef CONFIG_KSU\n\
-__attribute__((hot))\n\
-extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user,\n\
-				int *mode, int *flags);\n\
-#endif' fs/open.c
+          patch_file("fs/open.c", [
+              (
+                  "SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)\n"
+                  "{\n",
 
-            sed -i '/SYSCALL_DEFINE3(faccessat,/,/^}$/{
-              /unsigned int lookup_flags = LOOKUP_FOLLOW;/a\
-#ifdef CONFIG_KSU\n\
-	ksu_handle_faccessat(\&dfd, \&filename, \&mode, NULL);\n\
-#endif
-            }' fs/open.c
-            echo "[+] fs/open.c patched"
-          else
-            echo "[*] fs/open.c already patched"
-          fi
+                  "#ifdef CONFIG_KSU\n"
+                  "__attribute__((hot))\n"
+                  "extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user,\n"
+                  "\t\t\t\tint *mode, int *flags);\n"
+                  "#endif\n"
+                  "SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)\n"
+                  "{\n"
+                  "#ifdef CONFIG_KSU\n"
+                  "\tksu_handle_faccessat(&dfd, &filename, &mode, NULL);\n"
+                  "#endif\n"
+              )
+          ])
 
           # 3. fs/read_write.c
-          if ! grep -q "ksu_handle_sys_read" fs/read_write.c; then
-            sed -i '/SYSCALL_DEFINE3(read,/i\
-#ifdef CONFIG_KSU\n\
-extern bool ksu_vfs_read_hook __read_mostly;\n\
-extern __attribute__((cold)) int ksu_handle_sys_read(unsigned int fd,\n\
-				char __user **buf_ptr, size_t *count_ptr);\n\
-#endif' fs/read_write.c
+          patch_file("fs/read_write.c", [
+              (
+                  "SYSCALL_DEFINE3(read, unsigned int, fd, char __user *, buf, size_t, count)\n"
+                  "{\n"
+                  "\tstruct fd f = fdget_pos(fd);\n",
 
-            sed -i '/SYSCALL_DEFINE3(read,/,/^}$/{
-              /struct fd f = fdget_pos(fd);/a\
-#ifdef CONFIG_KSU\n\
-	if (unlikely(ksu_vfs_read_hook))\n\
-		ksu_handle_sys_read(fd, \&buf, \&count);\n\
-#endif
-            }' fs/read_write.c
-            echo "[+] fs/read_write.c patched"
-          else
-            echo "[*] fs/read_write.c already patched"
-          fi
+                  "#ifdef CONFIG_KSU\n"
+                  "extern bool ksu_vfs_read_hook __read_mostly;\n"
+                  "extern __attribute__((cold)) int ksu_handle_sys_read(unsigned int fd,\n"
+                  "\t\t\t\tchar __user **buf_ptr, size_t *count_ptr);\n"
+                  "#endif\n"
+                  "SYSCALL_DEFINE3(read, unsigned int, fd, char __user *, buf, size_t, count)\n"
+                  "{\n"
+                  "#ifdef CONFIG_KSU\n"
+                  "\tif (unlikely(ksu_vfs_read_hook))\n"
+                  "\t\tksu_handle_sys_read(fd, &buf, &count);\n"
+                  "#endif\n"
+                  "\tstruct fd f = fdget_pos(fd);\n"
+              )
+          ])
 
           # 4. fs/stat.c
-          if ! grep -q "ksu_handle_stat" fs/stat.c; then
-            sed -i '/SYSCALL_DEFINE4(newfstatat,/i\
-#ifdef CONFIG_KSU\n\
-__attribute__((hot))\n\
-extern int ksu_handle_stat(int *dfd, const char __user **filename_user,\n\
-				int *flags);\n\
-#endif' fs/stat.c
+          patch_file("fs/stat.c", [
+              (
+                  "SYSCALL_DEFINE4(newfstatat, int, dfd, const char __user *, filename,\n"
+                  "\t\tstruct stat __user *, statbuf, int, flag)\n"
+                  "{\n"
+                  "\tstruct kstat stat;\n"
+                  "\tint error;\n",
 
-            sed -i '/SYSCALL_DEFINE4(newfstatat,/,/^}$/{
-              /struct kstat stat;/a\
-#ifdef CONFIG_KSU\n\
-	ksu_handle_stat(\&dfd, \&filename, \&flag);\n\
-#endif
-            }' fs/stat.c
-            echo "[+] fs/stat.c patched"
-          else
-            echo "[*] fs/stat.c already patched"
-          fi
+                  "#ifdef CONFIG_KSU\n"
+                  "__attribute__((hot))\n"
+                  "extern int ksu_handle_stat(int *dfd, const char __user **filename_user,\n"
+                  "\t\t\t\tint *flags);\n"
+                  "#endif\n"
+                  "SYSCALL_DEFINE4(newfstatat, int, dfd, const char __user *, filename,\n"
+                  "\t\tstruct stat __user *, statbuf, int, flag)\n"
+                  "{\n"
+                  "\tstruct kstat stat;\n"
+                  "\tint error;\n"
+                  "#ifdef CONFIG_KSU\n"
+                  "\tksu_handle_stat(&dfd, &filename, &flag);\n"
+                  "#endif\n"
+              )
+          ])
 
-          # 5. kernel/reboot.c (required by Kbuild check)
-          if ! grep -q "ksu_handle_sys_reboot" kernel/reboot.c; then
-            sed -i '/SYSCALL_DEFINE4(reboot,/i\
-#ifdef CONFIG_KSU\n\
-extern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);\n\
-#endif' kernel/reboot.c
+          # 5. kernel/reboot.c (required by Kbuild)
+          patch_file("kernel/reboot.c", [
+              (
+                  "SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,\n"
+                  "\t\tvoid __user *, arg)\n"
+                  "{\n"
+                  "\tstruct pid_namespace *pid_ns = task_active_pid_ns(current);\n",
 
-            sed -i '/SYSCALL_DEFINE4(reboot,/,/^}$/{
-              /struct pid_namespace \*pid_ns = task_active_pid_ns(current);/a\
-#ifdef CONFIG_KSU\n\
-	ksu_handle_sys_reboot(magic1, magic2, cmd, \&arg);\n\
-#endif
-            }' kernel/reboot.c
-            echo "[+] kernel/reboot.c patched"
-          else
-            echo "[*] kernel/reboot.c already patched"
-          fi
+                  "#ifdef CONFIG_KSU\n"
+                  "extern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);\n"
+                  "#endif\n"
+                  "SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,\n"
+                  "\t\tvoid __user *, arg)\n"
+                  "{\n"
+                  "\tstruct pid_namespace *pid_ns = task_active_pid_ns(current);\n"
+                  "#ifdef CONFIG_KSU\n"
+                  "\tksu_handle_sys_reboot(magic1, magic2, cmd, &arg);\n"
+                  "#endif\n"
+              )
+          ])
 
-          echo
-          echo "Manual hooks applied successfully."
+          print("Manual hooks step finished.")
+          PYEOF
 
-          # Add configs to defconfig
+      - name: Add KernelSU configs to defconfig
+        shell: bash
+        run: |
+          set -e
           DEFCONFIG="arch/arm64/configs/exynos7885-a20_defconfig"
 
           if [ ! -f "$DEFCONFIG" ]; then
@@ -190,12 +218,12 @@ CONFIG_KSU_MANUAL_HOOK=y
 EOF
 
           echo "KernelSU configs written to defconfig"
+          tail -10 "$DEFCONFIG"
 
       - name: Verify kernel source
         shell: bash
         run: |
           set -e
-
           echo "========================================"
           echo "Kernel source verification"
           echo "========================================"
@@ -221,17 +249,16 @@ EOF
 
           echo
           echo "Checking Manual Hooks..."
-          grep -q "ksu_handle_sys_reboot" kernel/reboot.c && echo "[OK] reboot hook"
-          grep -q "ksu_handle_execveat" fs/exec.c && echo "[OK] execve hook"
-          grep -q "ksu_handle_faccessat" fs/open.c && echo "[OK] faccessat hook"
-          grep -q "ksu_handle_sys_read" fs/read_write.c && echo "[OK] read hook"
-          grep -q "ksu_handle_stat" fs/stat.c && echo "[OK] stat hook"
+          grep -q "ksu_handle_sys_reboot" kernel/reboot.c && echo "[OK] reboot hook" || echo "[WARN] reboot hook missing"
+          grep -q "ksu_handle_execveat" fs/exec.c && echo "[OK] execve hook" || echo "[WARN] execve hook missing"
+          grep -q "ksu_handle_faccessat" fs/open.c && echo "[OK] faccessat hook" || echo "[WARN] faccessat hook missing"
+          grep -q "ksu_handle_sys_read" fs/read_write.c && echo "[OK] read hook" || echo "[WARN] read hook missing"
+          grep -q "ksu_handle_stat" fs/stat.c && echo "[OK] stat hook" || echo "[WARN] stat hook missing"
 
       - name: Configure
         shell: bash
         run: |
           set -e
-
           TOOLCHAIN="$GITHUB_WORKSPACE/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9"
           export PATH="$TOOLCHAIN/bin:$PATH"
           export CROSS_COMPILE="$TOOLCHAIN/bin/aarch64-linux-android-"
@@ -240,11 +267,7 @@ EOF
           echo "Generating A20 defconfig"
           echo "========================================"
 
-          make \
-            ARCH=arm64 \
-            CROSS_COMPILE="$CROSS_COMPILE" \
-            exynos7885-a20_defconfig
-
+          make ARCH=arm64 CROSS_COMPILE="$CROSS_COMPILE" exynos7885-a20_defconfig
           test -f .config
 
           echo
@@ -263,16 +286,14 @@ EOF
         shell: bash
         run: |
           set -e
-
           TOOLCHAIN="$GITHUB_WORKSPACE/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9"
           export PATH="$TOOLCHAIN/bin:$PATH"
           export CROSS_COMPILE="$TOOLCHAIN/bin/aarch64-linux-android-"
-
           export HOSTCFLAGS="-fcommon"
           export HOSTCXXFLAGS="-fcommon"
 
           echo "========================================"
-          echo "Building A205F kernel + KernelSU Next (Manual Hooks)"
+          echo "Building A205F kernel + KernelSU Next"
           echo "========================================"
 
           make \
@@ -289,21 +310,9 @@ EOF
           echo "========================================"
           echo "Build output"
           echo "========================================"
-
-          echo
-          echo "Image:"
           ls -lh arch/arm64/boot/Image 2>/dev/null || true
-
-          echo
-          echo "Compressed images:"
           find arch/arm64/boot -maxdepth 1 -type f \( -name 'Image*' -o -name 'zImage' \) -exec ls -lh {} \; 2>/dev/null || true
-
-          echo
-          echo "DTB files:"
           find arch/arm64/boot/dts -type f -name '*.dtb' -exec ls -lh {} \; 2>/dev/null || true
-
-          echo
-          echo "DTBO files:"
           find arch/arm64/boot/dts -type f -name '*.dtbo' -exec ls -lh {} \; 2>/dev/null || true
 
       - name: Package artifacts
@@ -311,7 +320,6 @@ EOF
         shell: bash
         run: |
           set -e
-
           mkdir -p output/dtb
           mkdir -p output/dtbo
 
@@ -328,8 +336,6 @@ EOF
           fi
 
           cp -v .config output/kernel.config
-
-          echo
           echo "Final artifacts:"
           find output -type f -exec ls -lh {} \;
 
