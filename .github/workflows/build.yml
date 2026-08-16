@@ -1,4 +1,4 @@
-name: Build A205F Kernel
+name: Build A205F Kernel + KernelSU Next
 
 on:
   workflow_dispatch:
@@ -26,194 +26,280 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
+          sudo apt-get install -y bc bison build-essential ccache flex git libelf-dev libncurses5-dev libssl-dev lz4 python3 rsync unzip zip curl
 
-          sudo apt-get install -y \
-            bc \
-            bison \
-            build-essential \
-            ccache \
-            flex \
-            git \
-            libelf-dev \
-            libncurses5-dev \
-            libssl-dev \
-            lz4 \
-            python3 \
-            rsync \
-            unzip \
-            zip
-
-      - name: Verify kernel source
-        shell: bash
+      - name: Integrate KernelSU Next
         run: |
           set -e
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
 
-          echo "========================================"
-          echo "Kernel source"
-          echo "========================================"
 
+      - name: Fix KernelSU for old GCC 4.9 and kernel 4.4
+        run: |
+          set -e
+          echo "Fixing KernelSU for GCC 4.9 + kernel 4.4..."
+
+          # 1. Remove unsupported compiler flags
+          find KernelSU-Next drivers/kernelsu -type f \( -name "Makefile" -o -name "Kbuild" -o -name "*.mk" \) 2>/dev/null | while read f; do
+            sed -i 's/-Wno-gcc-compat//g' "$f" || true
+            sed -i 's/-Wno-int-conversion//g' "$f" || true
+            sed -i 's/-Wno-implicit-function-declaration//g' "$f" || true
+          done
+
+          # 2. Force no-error for KernelSU
+          if [ -f drivers/kernelsu/Kbuild ]; then
+            if ! grep -q "Wno-error" drivers/kernelsu/Kbuild; then
+              echo "ccflags-y += -Wno-error -Wno-implicit-function-declaration -Wno-declaration-after-statement -Wno-pointer-arith" >> drivers/kernelsu/Kbuild
+            fi
+          fi
+
+          # 3. Fix in_compat_syscall (not available on 4.4)
+          for f in drivers/kernelsu/sulog/event.c drivers/kernelsu/runtime/ksud_integration.c; do
+            if [ -f "$f" ] && ! grep -q "define in_compat_syscall" "$f"; then
+              sed -i '1i#ifndef in_compat_syscall\n#define in_compat_syscall() is_compat_task()\n#endif' "$f"
+              echo "patched in_compat_syscall in $f"
+            fi
+          done
+
+          # 4. Fix __nocfi (not supported on old GCC)
+          for f in drivers/kernelsu/feature/selinux_hide.c drivers/kernelsu/feature/*.c; do
+            if [ -f "$f" ] && grep -q "__nocfi" "$f" && ! grep -q "define __nocfi" "$f"; then
+              sed -i '1i#ifndef __nocfi\n#define __nocfi\n#endif' "$f"
+              echo "patched __nocfi in $f"
+            fi
+          done
+
+          # 5. Other small fixes
+          if [ -f drivers/kernelsu/infra/su_mount_ns.c ]; then
+            sed -i 's/long ret = ns_get_path(/long ret = (long)ns_get_path(/g' drivers/kernelsu/infra/su_mount_ns.c || true
+            echo "patched su_mount_ns.c"
+          fi
+
+          if [ -f drivers/kernelsu/runtime/ksud_integration.c ]; then
+            sed -i 's/copy_to_iter(KERNEL_SU_RC + ksu_rc_pos/copy_to_iter((void *)(KERNEL_SU_RC + ksu_rc_pos)/g' drivers/kernelsu/runtime/ksud_integration.c || true
+            echo "patched ksud_integration.c"
+          fi
+
+          # Fix ALIGN_DOWN (missing on kernel 4.4)
+          if [ -f drivers/kernelsu/feature/adb_root.c ]; then
+            if ! grep -q "define ALIGN_DOWN" drivers/kernelsu/feature/adb_root.c; then
+              sed -i '1i#ifndef ALIGN_DOWN\n#define ALIGN_DOWN(x, a) ((x) & \~((typeof(x))(a) - 1))\n#endif' drivers/kernelsu/feature/adb_root.c
+              echo "patched ALIGN_DOWN in adb_root.c"
+            fi
+          fi
+
+          echo "Compatibility fixes applied"
+
+
+      - name: Apply Manual Hooks
+        run: |
+          set -e
+          cat > /tmp/apply_hooks.py << 'EOF'
+          import os
+
+          def patch(path, old, new):
+              if not os.path.exists(path):
+                  print("[!] missing:", path)
+                  return
+              with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                  data = f.read()
+              if old not in data:
+                  print("[*] pattern not found:", path)
+                  return
+              with open(path, "w", encoding="utf-8") as f:
+                  f.write(data.replace(old, new, 1))
+              print("[+] patched:", path)
+
+          # fs/exec.c
+          patch("fs/exec.c",
+          "int do_execve(struct filename *filename,\n"
+          "\tconst char __user *const __user *__argv,\n"
+          "\tconst char __user *const __user *__envp)\n"
+          "{\n"
+          "\tstruct user_arg_ptr argv = { .ptr.native = __argv };\n"
+          "\tstruct user_arg_ptr envp = { .ptr.native = __envp };\n",
+          "#ifdef CONFIG_KSU\n"
+          "__attribute__((hot))\n"
+          "extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr,\n"
+          "\t\t\t\tvoid *argv, void *envp, int *flags);\n"
+          "#endif\n"
+          "int do_execve(struct filename *filename,\n"
+          "\tconst char __user *const __user *__argv,\n"
+          "\tconst char __user *const __user *__envp)\n"
+          "{\n"
+          "\tstruct user_arg_ptr argv = { .ptr.native = __argv };\n"
+          "\tstruct user_arg_ptr envp = { .ptr.native = __envp };\n"
+          "#ifdef CONFIG_KSU\n"
+          "\tksu_handle_execveat((int *)AT_FDCWD, &filename, &argv, &envp, 0);\n"
+          "#endif\n")
+
+          # fs/open.c  (hook AFTER all declarations)
+          patch("fs/open.c",
+          "SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)\n"
+          "{\n"
+          "\tconst struct cred *old_cred;\n"
+          "\tstruct cred *override_cred;\n"
+          "\tstruct path path;\n"
+          "\tstruct inode *inode;\n"
+          "\tint res;\n"
+          "\tunsigned int lookup_flags = LOOKUP_FOLLOW;\n",
+          "#ifdef CONFIG_KSU\n"
+          "__attribute__((hot))\n"
+          "extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user,\n"
+          "\t\t\t\tint *mode, int *flags);\n"
+          "#endif\n"
+          "SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)\n"
+          "{\n"
+          "\tconst struct cred *old_cred;\n"
+          "\tstruct cred *override_cred;\n"
+          "\tstruct path path;\n"
+          "\tstruct inode *inode;\n"
+          "\tint res;\n"
+          "\tunsigned int lookup_flags = LOOKUP_FOLLOW;\n"
+          "#ifdef CONFIG_KSU\n"
+          "\tksu_handle_faccessat(&dfd, &filename, &mode, NULL);\n"
+          "#endif\n")
+
+          # fs/read_write.c  (hook AFTER struct fd declaration)
+          patch("fs/read_write.c",
+          "SYSCALL_DEFINE3(read, unsigned int, fd, char __user *, buf, size_t, count)\n"
+          "{\n"
+          "\tstruct fd f = fdget_pos(fd);\n"
+          "\tssize_t ret = -EBADF;\n",
+          "#ifdef CONFIG_KSU\n"
+          "extern bool ksu_vfs_read_hook __read_mostly;\n"
+          "extern __attribute__((cold)) int ksu_handle_sys_read(unsigned int fd,\n"
+          "\t\t\t\tchar __user **buf_ptr, size_t *count_ptr);\n"
+          "#endif\n"
+          "SYSCALL_DEFINE3(read, unsigned int, fd, char __user *, buf, size_t, count)\n"
+          "{\n"
+          "\tstruct fd f = fdget_pos(fd);\n"
+          "\tssize_t ret = -EBADF;\n"
+          "#ifdef CONFIG_KSU\n"
+          "\tif (unlikely(ksu_vfs_read_hook))\n"
+          "\t\tksu_handle_sys_read(fd, &buf, &count);\n"
+          "#endif\n")
+
+          # fs/stat.c
+          patch("fs/stat.c",
+          "SYSCALL_DEFINE4(newfstatat, int, dfd, const char __user *, filename,\n"
+          "\t\tstruct stat __user *, statbuf, int, flag)\n"
+          "{\n"
+          "\tstruct kstat stat;\n"
+          "\tint error;\n",
+          "#ifdef CONFIG_KSU\n"
+          "__attribute__((hot))\n"
+          "extern int ksu_handle_stat(int *dfd, const char __user **filename_user,\n"
+          "\t\t\t\tint *flags);\n"
+          "#endif\n"
+          "SYSCALL_DEFINE4(newfstatat, int, dfd, const char __user *, filename,\n"
+          "\t\tstruct stat __user *, statbuf, int, flag)\n"
+          "{\n"
+          "\tstruct kstat stat;\n"
+          "\tint error;\n"
+          "#ifdef CONFIG_KSU\n"
+          "\tksu_handle_stat(&dfd, &filename, &flag);\n"
+          "#endif\n")
+
+          # kernel/reboot.c
+          patch("kernel/reboot.c",
+          "SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,\n"
+          "\t\tvoid __user *, arg)\n"
+          "{\n"
+          "\tstruct pid_namespace *pid_ns = task_active_pid_ns(current);\n"
+          "\tchar buffer[256];\n"
+          "\tint ret = 0;\n",
+          "#ifdef CONFIG_KSU\n"
+          "extern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);\n"
+          "#endif\n"
+          "SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,\n"
+          "\t\tvoid __user *, arg)\n"
+          "{\n"
+          "\tstruct pid_namespace *pid_ns = task_active_pid_ns(current);\n"
+          "\tchar buffer[256];\n"
+          "\tint ret = 0;\n"
+          "#ifdef CONFIG_KSU\n"
+          "\tksu_handle_sys_reboot(magic1, magic2, cmd, &arg);\n"
+          "#endif\n")
+
+          print("done")
+          EOF
+
+          python3 /tmp/apply_hooks.py
+
+      - name: Add KernelSU configs
+        run: |
+          set -e
+          DEFCONFIG="arch/arm64/configs/exynos7885-a20_defconfig"
+          sed -i '/CONFIG_KSU/d' "$DEFCONFIG"
+          sed -i '/CONFIG_KPROBE/d' "$DEFCONFIG"
+          cat >> "$DEFCONFIG" << 'EOF'
+
+          # KernelSU Next (Manual Hooks for 4.4)
+          CONFIG_KSU=y
+          CONFIG_KSU_MANUAL_HOOK=y
+          # CONFIG_KSU_KPROBES_HOOK is not set
+          EOF
+          echo "configs added"
+          tail -8 "$DEFCONFIG"
+
+      - name: Verify
+        run: |
+          set -e
           test -f Makefile
           test -f arch/arm64/configs/exynos7885-a20_defconfig
-
           TOOLCHAIN="$GITHUB_WORKSPACE/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9"
-
-          test -d "$TOOLCHAIN"
           test -x "$TOOLCHAIN/bin/aarch64-linux-android-gcc"
-
-          echo "Toolchain:"
           "$TOOLCHAIN/bin/aarch64-linux-android-gcc" --version
-
-          echo
-          echo "Kernel version:"
           make kernelversion
+          grep -q "ksu_handle_sys_reboot" kernel/reboot.c && echo "[OK] reboot" || echo "[WARN] reboot"
+          grep -q "ksu_handle_execveat" fs/exec.c && echo "[OK] execve" || echo "[WARN] execve"
+          grep -q "ksu_handle_faccessat" fs/open.c && echo "[OK] faccessat" || echo "[WARN] faccessat"
+          grep -q "ksu_handle_sys_read" fs/read_write.c && echo "[OK] read" || echo "[WARN] read"
+          grep -q "ksu_handle_stat" fs/stat.c && echo "[OK] stat" || echo "[WARN] stat"
 
       - name: Configure
-        shell: bash
         run: |
           set -e
-
           TOOLCHAIN="$GITHUB_WORKSPACE/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9"
-
           export PATH="$TOOLCHAIN/bin:$PATH"
           export CROSS_COMPILE="$TOOLCHAIN/bin/aarch64-linux-android-"
-
-          echo "========================================"
-          echo "Generating A20 defconfig"
-          echo "========================================"
-
-          make \
-            ARCH=arm64 \
-            CROSS_COMPILE="$CROSS_COMPILE" \
-            exynos7885-a20_defconfig
-
-          echo
-          echo "Config generated successfully."
-
-          test -f .config
+          make ARCH=arm64 CROSS_COMPILE="$CROSS_COMPILE" exynos7885-a20_defconfig
+          grep -E "CONFIG_KSU|CONFIG_KPROBE" .config || true
 
       - name: Clean host tools
-        shell: bash
         run: |
-          rm -f scripts/dtc/dtc
-          rm -f scripts/dtc/*.o
-          rm -f scripts/dtc/dtc-lexer.lex.o
-          rm -f scripts/dtc/dtc-parser.tab.o
+          rm -f scripts/dtc/dtc scripts/dtc/*.o scripts/dtc/dtc-lexer.lex.o scripts/dtc/dtc-parser.tab.o
 
       - name: Build kernel
-        shell: bash
         run: |
           set -e
-
           TOOLCHAIN="$GITHUB_WORKSPACE/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9"
-
           export PATH="$TOOLCHAIN/bin:$PATH"
           export CROSS_COMPILE="$TOOLCHAIN/bin/aarch64-linux-android-"
-
-          # Old Samsung kernel DTC requires GCC common-symbol behavior.
           export HOSTCFLAGS="-fcommon"
           export HOSTCXXFLAGS="-fcommon"
-
-          echo "========================================"
-          echo "Building A205F kernel"
-          echo "========================================"
-
-          echo "ARCH=$ARCH"
-          echo "CROSS_COMPILE=$CROSS_COMPILE"
-          echo "HOSTCFLAGS=$HOSTCFLAGS"
-
-          make \
-            ARCH=arm64 \
-            CROSS_COMPILE="$CROSS_COMPILE" \
-            HOSTCFLAGS="$HOSTCFLAGS" \
-            HOSTCXXFLAGS="$HOSTCXXFLAGS" \
-            -j"$(nproc)"
-
-      - name: Verify build output
-        if: always()
-        shell: bash
-        run: |
-          echo "========================================"
-          echo "Build output"
-          echo "========================================"
-
-          echo
-          echo "Image:"
-          ls -lh arch/arm64/boot/Image 2>/dev/null || true
-
-          echo
-          echo "Compressed images:"
-          find arch/arm64/boot \
-            -maxdepth 1 \
-            -type f \
-            \( -name 'Image*' -o -name 'zImage' \) \
-            -exec ls -lh {} \; \
-            2>/dev/null || true
-
-          echo
-          echo "DTB files:"
-          find arch/arm64/boot/dts \
-            -type f \
-            -name '*.dtb' \
-            -exec ls -lh {} \; \
-            2>/dev/null || true
-
-          echo
-          echo "DTBO files:"
-          find arch/arm64/boot/dts \
-            -type f \
-            -name '*.dtbo' \
-            -exec ls -lh {} \; \
-            2>/dev/null || true
+          JOBS=$(nproc)
+          echo "Using $JOBS jobs"
+          make ARCH=arm64 CROSS_COMPILE="$CROSS_COMPILE" HOSTCFLAGS="$HOSTCFLAGS" HOSTCXXFLAGS="$HOSTCXXFLAGS" -j$JOBS
 
       - name: Package artifacts
         if: success()
-        shell: bash
         run: |
           set -e
-
-          mkdir -p output/dtb
-          mkdir -p output/dtbo
-
-          echo "========================================"
-          echo "Collecting kernel"
-          echo "========================================"
-
-          test -f arch/arm64/boot/Image
-
+          mkdir -p output/dtb output/dtbo
           cp -v arch/arm64/boot/Image output/Image
-
-          if [ -f arch/arm64/boot/Image.gz ]; then
-            cp -v arch/arm64/boot/Image.gz output/Image.gz
-          fi
-
-          if [ -d arch/arm64/boot/dts ]; then
-            find arch/arm64/boot/dts \
-              -type f \
-              -name '*.dtb' \
-              -exec cp -v {} output/dtb/ \; \
-              || true
-
-            find arch/arm64/boot/dts \
-              -type f \
-              -name '*.dtbo' \
-              -exec cp -v {} output/dtbo/ \; \
-              || true
-          fi
-
+          [ -f arch/arm64/boot/Image.gz ] && cp -v arch/arm64/boot/Image.gz output/Image.gz || true
+          find arch/arm64/boot/dts -type f -name '*.dtb' -exec cp -v {} output/dtb/ \; 2>/dev/null || true
+          find arch/arm64/boot/dts -type f -name '*.dtbo' -exec cp -v {} output/dtbo/ \; 2>/dev/null || true
           cp -v .config output/kernel.config
-
-          echo
-          echo "========================================"
-          echo "Final artifacts"
-          echo "========================================"
-
           find output -type f -exec ls -lh {} \;
 
-      - name: Upload kernel artifact
+      - name: Upload artifact
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: A205F-kernel
+          name: A205F-kernel-KernelSU-Next
           path: output/
           if-no-files-found: error
           retention-days: 14
