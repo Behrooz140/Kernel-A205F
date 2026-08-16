@@ -28,12 +28,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y bc bison build-essential ccache flex git libelf-dev libncurses5-dev libssl-dev lz4 python3 rsync unzip zip curl
 
-      - name: Integrate SukiSU Ultra (builtin)
+      - name: Pre-build SukiSU Ultra (builtin) - v3.1.7 (test successful)
         run: |
           set -e
-          echo "Integrating SukiSU Ultra (builtin)..."
+          echo "Pre-building SukiSU Ultra (builtin)..."
           curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin
-          echo "SukiSU integrated."
+          echo "SukiSU Ultra pre-build done. Directory: $(ls -d KernelSU 2>/dev/null || ls -d drivers/kernelsu 2>/dev/null)"
 
       - name: Fix SukiSU for old GCC 4.9 and kernel 4.4
         run: |
@@ -41,7 +41,7 @@ jobs:
           echo "Fixing SukiSU for GCC 4.9 + kernel 4.4..."
 
           # 1. Remove unsupported compiler flags
-          find KernelSU drivers/kernelsu -type f \( -name "Makefile" -o -name "Kbuild" -o -name "*.mk" \) 2>/dev/null | while read f; do
+          find drivers/kernelsu -type f \( -name "Makefile" -o -name "Kbuild" -o -name "*.mk" \) 2>/dev/null | while read f; do
             sed -i 's/-Wno-gcc-compat//g' "$f" || true
             sed -i 's/-Wno-int-conversion//g' "$f" || true
             sed -i 's/-Wno-implicit-function-declaration//g' "$f" || true
@@ -238,7 +238,6 @@ jobs:
           # SukiSU Ultra (Manual Hooks for 4.4)
           CONFIG_KSU=y
           CONFIG_KSU_MANUAL_HOOK=y
-          # CONFIG_KSU_KPROBES_HOOK is not set
           CONFIG_KALLSYMS=y
           CONFIG_KALLSYMS_ALL=y
           EOF
