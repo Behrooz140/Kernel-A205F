@@ -51,149 +51,140 @@ jobs:
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
           echo "KernelSU integrated."
 
+
       - name: Apply Manual Hooks
         shell: bash
         run: |
           set -e
           python3 << 'PYEOF'
-          import re
           import os
 
-          def patch_file(path, patches):
+          def patch_file(path, old, new):
               if not os.path.exists(path):
                   print(f"[!] File not found: {path}")
                   return False
               with open(path, "r", encoding="utf-8", errors="ignore") as f:
                   content = f.read()
-              original = content
-              for old, new in patches:
-                  if old in content:
-                      content = content.replace(old, new, 1)
-                      print(f"[+] Patched: {path}")
-                  else:
-                      print(f"[*] Pattern not found in {path} (may already be patched or different structure)")
-              if content != original:
-                  with open(path, "w", encoding="utf-8") as f:
-                      f.write(content)
-                  return True
-              return False
+              if old not in content:
+                  print(f"[*] Pattern not found in {path}")
+                  return False
+              content = content.replace(old, new, 1)
+              with open(path, "w", encoding="utf-8") as f:
+                  f.write(content)
+              print(f"[+] Patched: {path}")
+              return True
 
           # 1. fs/exec.c
-          patch_file("fs/exec.c", [
-              (
-                  "int do_execve(struct filename *filename,\n"
-                  "\tconst char __user *const __user *__argv,\n"
-                  "\tconst char __user *const __user *__envp)\n"
-                  "{\n"
-                  "\tstruct user_arg_ptr argv = { .ptr.native = __argv };\n"
-                  "\tstruct user_arg_ptr envp = { .ptr.native = __envp };\n",
-
-                  "#ifdef CONFIG_KSU\n"
-                  "__attribute__((hot))\n"
-                  "extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr,\n"
-                  "\t\t\t\tvoid *argv, void *envp, int *flags);\n"
-                  "#endif\n"
-                  "int do_execve(struct filename *filename,\n"
-                  "\tconst char __user *const __user *__argv,\n"
-                  "\tconst char __user *const __user *__envp)\n"
-                  "{\n"
-                  "\tstruct user_arg_ptr argv = { .ptr.native = __argv };\n"
-                  "\tstruct user_arg_ptr envp = { .ptr.native = __envp };\n"
-                  "#ifdef CONFIG_KSU\n"
-                  "\tksu_handle_execveat((int *)AT_FDCWD, &filename, &argv, &envp, 0);\n"
-                  "#endif\n"
-              )
-          ])
+          patch_file("fs/exec.c",
+          """int do_execve(struct filename *filename,
+	const char __user *const __user *__argv,
+	const char __user *const __user *__envp)
+{
+	struct user_arg_ptr argv = { .ptr.native = __argv };
+	struct user_arg_ptr envp = { .ptr.native = __envp };
+""",
+          """#ifdef CONFIG_KSU
+__attribute__((hot))
+extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr,
+				void *argv, void *envp, int *flags);
+#endif
+int do_execve(struct filename *filename,
+	const char __user *const __user *__argv,
+	const char __user *const __user *__envp)
+{
+	struct user_arg_ptr argv = { .ptr.native = __argv };
+	struct user_arg_ptr envp = { .ptr.native = __envp };
+#ifdef CONFIG_KSU
+	ksu_handle_execveat((int *)AT_FDCWD, &filename, &argv, &envp, 0);
+#endif
+""")
 
           # 2. fs/open.c
-          patch_file("fs/open.c", [
-              (
-                  "SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)\n"
-                  "{\n",
-
-                  "#ifdef CONFIG_KSU\n"
-                  "__attribute__((hot))\n"
-                  "extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user,\n"
-                  "\t\t\t\tint *mode, int *flags);\n"
-                  "#endif\n"
-                  "SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)\n"
-                  "{\n"
-                  "#ifdef CONFIG_KSU\n"
-                  "\tksu_handle_faccessat(&dfd, &filename, &mode, NULL);\n"
-                  "#endif\n"
-              )
-          ])
+          patch_file("fs/open.c",
+          """SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)
+{
+""",
+          """#ifdef CONFIG_KSU
+__attribute__((hot))
+extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user,
+				int *mode, int *flags);
+#endif
+SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)
+{
+#ifdef CONFIG_KSU
+	ksu_handle_faccessat(&dfd, &filename, &mode, NULL);
+#endif
+""")
 
           # 3. fs/read_write.c
-          patch_file("fs/read_write.c", [
-              (
-                  "SYSCALL_DEFINE3(read, unsigned int, fd, char __user *, buf, size_t, count)\n"
-                  "{\n"
-                  "\tstruct fd f = fdget_pos(fd);\n",
-
-                  "#ifdef CONFIG_KSU\n"
-                  "extern bool ksu_vfs_read_hook __read_mostly;\n"
-                  "extern __attribute__((cold)) int ksu_handle_sys_read(unsigned int fd,\n"
-                  "\t\t\t\tchar __user **buf_ptr, size_t *count_ptr);\n"
-                  "#endif\n"
-                  "SYSCALL_DEFINE3(read, unsigned int, fd, char __user *, buf, size_t, count)\n"
-                  "{\n"
-                  "#ifdef CONFIG_KSU\n"
-                  "\tif (unlikely(ksu_vfs_read_hook))\n"
-                  "\t\tksu_handle_sys_read(fd, &buf, &count);\n"
-                  "#endif\n"
-                  "\tstruct fd f = fdget_pos(fd);\n"
-              )
-          ])
+          patch_file("fs/read_write.c",
+          """SYSCALL_DEFINE3(read, unsigned int, fd, char __user *, buf, size_t, count)
+{
+	struct fd f = fdget_pos(fd);
+""",
+          """#ifdef CONFIG_KSU
+extern bool ksu_vfs_read_hook __read_mostly;
+extern __attribute__((cold)) int ksu_handle_sys_read(unsigned int fd,
+				char __user **buf_ptr, size_t *count_ptr);
+#endif
+SYSCALL_DEFINE3(read, unsigned int, fd, char __user *, buf, size_t, count)
+{
+#ifdef CONFIG_KSU
+	if (unlikely(ksu_vfs_read_hook))
+		ksu_handle_sys_read(fd, &buf, &count);
+#endif
+	struct fd f = fdget_pos(fd);
+""")
 
           # 4. fs/stat.c
-          patch_file("fs/stat.c", [
-              (
-                  "SYSCALL_DEFINE4(newfstatat, int, dfd, const char __user *, filename,\n"
-                  "\t\tstruct stat __user *, statbuf, int, flag)\n"
-                  "{\n"
-                  "\tstruct kstat stat;\n"
-                  "\tint error;\n",
+          patch_file("fs/stat.c",
+          """SYSCALL_DEFINE4(newfstatat, int, dfd, const char __user *, filename,
+		struct stat __user *, statbuf, int, flag)
+{
+	struct kstat stat;
+	int error;
+""",
+          """#ifdef CONFIG_KSU
+__attribute__((hot))
+extern int ksu_handle_stat(int *dfd, const char __user **filename_user,
+				int *flags);
+#endif
+SYSCALL_DEFINE4(newfstatat, int, dfd, const char __user *, filename,
+		struct stat __user *, statbuf, int, flag)
+{
+	struct kstat stat;
+	int error;
+#ifdef CONFIG_KSU
+	ksu_handle_stat(&dfd, &filename, &flag);
+#endif
+""")
 
-                  "#ifdef CONFIG_KSU\n"
-                  "__attribute__((hot))\n"
-                  "extern int ksu_handle_stat(int *dfd, const char __user **filename_user,\n"
-                  "\t\t\t\tint *flags);\n"
-                  "#endif\n"
-                  "SYSCALL_DEFINE4(newfstatat, int, dfd, const char __user *, filename,\n"
-                  "\t\tstruct stat __user *, statbuf, int, flag)\n"
-                  "{\n"
-                  "\tstruct kstat stat;\n"
-                  "\tint error;\n"
-                  "#ifdef CONFIG_KSU\n"
-                  "\tksu_handle_stat(&dfd, &filename, &flag);\n"
-                  "#endif\n"
-              )
-          ])
+          # 5. kernel/reboot.c  (fix: call AFTER all declarations)
+          patch_file("kernel/reboot.c",
+          """SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,
+		void __user *, arg)
+{
+	struct pid_namespace *pid_ns = task_active_pid_ns(current);
+	char buffer[256];
+	int ret = 0;
+""",
+          """#ifdef CONFIG_KSU
+extern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);
+#endif
+SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,
+		void __user *, arg)
+{
+	struct pid_namespace *pid_ns = task_active_pid_ns(current);
+	char buffer[256];
+	int ret = 0;
+#ifdef CONFIG_KSU
+	ksu_handle_sys_reboot(magic1, magic2, cmd, &arg);
+#endif
+""")
 
-          # 5. kernel/reboot.c (required by Kbuild)
-          patch_file("kernel/reboot.c", [
-              (
-                  "SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,\n"
-                  "\t\tvoid __user *, arg)\n"
-                  "{\n"
-                  "\tstruct pid_namespace *pid_ns = task_active_pid_ns(current);\n",
-
-                  "#ifdef CONFIG_KSU\n"
-                  "extern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);\n"
-                  "#endif\n"
-                  "SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,\n"
-                  "\t\tvoid __user *, arg)\n"
-                  "{\n"
-                  "\tstruct pid_namespace *pid_ns = task_active_pid_ns(current);\n"
-                  "#ifdef CONFIG_KSU\n"
-                  "\tksu_handle_sys_reboot(magic1, magic2, cmd, &arg);\n"
-                  "#endif\n"
-              )
-          ])
-
-          print("Manual hooks step finished.")
+          print("Manual hooks applied.")
           PYEOF
+
 
       - name: Add KernelSU configs to defconfig
         shell: bash
