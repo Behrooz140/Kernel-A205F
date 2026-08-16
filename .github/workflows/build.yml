@@ -34,77 +34,63 @@ jobs:
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
 
 
-      - name: Diagnose KernelSU App Profile
+            - name: Analyze App Profile Path
         run: |
           set -e
 
           echo "========================================"
-          echo " KernelSU App Profile Diagnostics"
+          echo " KSU APP PROFILE STATIC ANALYSIS"
           echo "========================================"
 
           echo
-          echo "===== KSU VERSION ====="
-
-          if [ -d KernelSU-Next ]; then
-            git -C KernelSU-Next log -1 --oneline || true
-            git -C KernelSU-Next describe --tags --always || true
-          fi
+          echo "===== APP PROFILE UAPI ====="
+          sed -n '1,180p' \
+            drivers/kernelsu/include/uapi/app_profile.h \
+            2>/dev/null || true
 
           echo
-          echo "===== APP PROFILE REFERENCES ====="
+          echo "===== SUPER CALL DEFINITIONS ====="
+          grep -n -A20 -B10 \
+            'KSU_IOCTL_SET_APP_PROFILE' \
+            drivers/kernelsu/include/uapi/supercall.h \
+            2>/dev/null || true
 
+          echo
+          echo "===== do_set_app_profile ====="
+          grep -n -A80 -B20 \
+            'do_set_app_profile' \
+            drivers/kernelsu/supercall/dispatch.c \
+            2>/dev/null || true
+
+          echo
+          echo "===== ksu_set_app_profile ====="
+          grep -Rni -A100 -B20 \
+            'ksu_set_app_profile' \
+            drivers/kernelsu \
+            2>/dev/null || true
+
+          echo
+          echo "===== profile_valid ====="
+          grep -Rni -A100 -B20 \
+            'profile_valid' \
+            drivers/kernelsu \
+            2>/dev/null || true
+
+          echo
+          echo "===== APP PROFILE RETURN CODES ====="
           grep -RniE \
-            'app_profile|APP_PROFILE|set_app_profile|get_app_profile' \
-            drivers/kernelsu KernelSU-Next 2>/dev/null \
-            | head -300 || true
-
-          echo
-          echo "===== ALLOWLIST REFERENCES ====="
-
-          grep -RniE \
-            'allowlist|allow_list|allow list' \
-            drivers/kernelsu KernelSU-Next 2>/dev/null \
-            | head -300 || true
-
-          echo
-          echo "===== SUPERCALL REFERENCES ====="
-
-          grep -RniE \
-            'supercall|ksu_supercall|KSU_IOCTL' \
-            drivers/kernelsu KernelSU-Next 2>/dev/null \
-            | head -300 || true
-
-          echo
-          echo "===== IOCTL REFERENCES ====="
-
-          grep -RniE \
-            'ioctl|_IOW|_IOR|_IOWR' \
-            drivers/kernelsu KernelSU-Next 2>/dev/null \
-            | head -300 || true
-
-          echo
-          echo "===== KSU MANAGER / KSUD INTERFACE ====="
-
-          grep -RniE \
-            'ksud|ksu_manager|manager|profile' \
-            drivers/kernelsu KernelSU-Next 2>/dev/null \
-            | head -300 || true
-
-          echo
-          echo "===== KSU FILE TREE ====="
-
-          find drivers/kernelsu \
-            -maxdepth 3 \
-            -type f \
+            'return[[:space:]]+(-[A-Z0-9_]+|[0-9]+)' \
+            drivers/kernelsu/supercall/dispatch.c \
+            drivers/kernelsu/policy \
             2>/dev/null \
-            | sort \
-            | head -400 || true
+            | grep -E \
+            'profile|allow|set_app' \
+            | head -300 || true
 
           echo
           echo "========================================"
-          echo " Diagnostics completed"
+          echo " Analysis completed"
           echo "========================================"
-
 
       - name: Fix KernelSU for old GCC 4.9 and kernel 4.4
         run: |
