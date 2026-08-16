@@ -677,6 +677,38 @@ jobs:
           echo "========================================"
 
 
+      - name: Diagnose Manager Tracker
+        run: |
+          set -e
+
+          echo "========================================"
+          echo " KSU THRONE TRACKER"
+          echo "========================================"
+
+          echo
+          echo "===== throne_tracker.c 1-90 ====="
+
+          sed -n '1,90p' \
+            drivers/kernelsu/manager/throne_tracker.c
+
+          echo
+          echo "===== throne_tracker.c 300-360 ====="
+
+          sed -n '300,360p' \
+            drivers/kernelsu/manager/throne_tracker.c
+
+          echo
+          echo "===== apk_sign manager detection ====="
+
+          sed -n '350,470p' \
+            drivers/kernelsu/manager/apk_sign.c
+
+          echo
+          echo "========================================"
+          echo " MANAGER TRACKER CHECK DONE"
+          echo "========================================"
+
+
       - name: Build kernel
         run: |
           set -e
