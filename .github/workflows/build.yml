@@ -34,6 +34,78 @@ jobs:
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
 
 
+      - name: Diagnose KernelSU App Profile
+        run: |
+          set -e
+
+          echo "========================================"
+          echo " KernelSU App Profile Diagnostics"
+          echo "========================================"
+
+          echo
+          echo "===== KSU VERSION ====="
+
+          if [ -d KernelSU-Next ]; then
+            git -C KernelSU-Next log -1 --oneline || true
+            git -C KernelSU-Next describe --tags --always || true
+          fi
+
+          echo
+          echo "===== APP PROFILE REFERENCES ====="
+
+          grep -RniE \
+            'app_profile|APP_PROFILE|set_app_profile|get_app_profile' \
+            drivers/kernelsu KernelSU-Next 2>/dev/null \
+            | head -300 || true
+
+          echo
+          echo "===== ALLOWLIST REFERENCES ====="
+
+          grep -RniE \
+            'allowlist|allow_list|allow list' \
+            drivers/kernelsu KernelSU-Next 2>/dev/null \
+            | head -300 || true
+
+          echo
+          echo "===== SUPERCALL REFERENCES ====="
+
+          grep -RniE \
+            'supercall|ksu_supercall|KSU_IOCTL' \
+            drivers/kernelsu KernelSU-Next 2>/dev/null \
+            | head -300 || true
+
+          echo
+          echo "===== IOCTL REFERENCES ====="
+
+          grep -RniE \
+            'ioctl|_IOW|_IOR|_IOWR' \
+            drivers/kernelsu KernelSU-Next 2>/dev/null \
+            | head -300 || true
+
+          echo
+          echo "===== KSU MANAGER / KSUD INTERFACE ====="
+
+          grep -RniE \
+            'ksud|ksu_manager|manager|profile' \
+            drivers/kernelsu KernelSU-Next 2>/dev/null \
+            | head -300 || true
+
+          echo
+          echo "===== KSU FILE TREE ====="
+
+          find drivers/kernelsu \
+            -maxdepth 3 \
+            -type f \
+            2>/dev/null \
+            | sort \
+            | head -400 || true
+
+          echo
+          echo "========================================"
+          echo " Diagnostics completed"
+          echo "========================================"
+
+
       - name: Fix KernelSU for old GCC 4.9 and kernel 4.4
         run: |
           set -e
