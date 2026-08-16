@@ -133,32 +133,42 @@ jobs:
           "\tksu_handle_execveat((int *)AT_FDCWD, &filename, &argv, &envp, 0);\n"
           "#endif\n")
 
-          # fs/open.c  (hook AFTER all declarations)
+          # fs/open.c (نسخه هوشمند برای سامسونگ)
           patch("fs/open.c",
-          "SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)\n"
-          "{\n"
-          "\tconst struct cred *old_cred;\n"
-          "\tstruct cred *override_cred;\n"
-          "\tstruct path path;\n"
-          "\tstruct inode *inode;\n"
-          "\tint res;\n"
-          "\tunsigned int lookup_flags = LOOKUP_FOLLOW;\n",
+          "SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)",
           "#ifdef CONFIG_KSU\n"
-          "__attribute__((hot))\n"
-          "extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user,\n"
-          "\t\t\t\tint *mode, int *flags);\n"
+          "extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user, int *mode, int *flags);\n"
           "#endif\n"
-          "SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)\n"
-          "{\n"
-          "\tconst struct cred *old_cred;\n"
-          "\tstruct cred *override_cred;\n"
-          "\tstruct path path;\n"
-          "\tstruct inode *inode;\n"
-          "\tint res;\n"
-          "\tunsigned int lookup_flags = LOOKUP_FOLLOW;\n"
+          "SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)")
+
+          patch("fs/open.c",
+          "\tif (mode & ~S_IRWXO)",
           "#ifdef CONFIG_KSU\n"
           "\tksu_handle_faccessat(&dfd, &filename, &mode, NULL);\n"
-          "#endif\n")
+          "#endif\n"
+          "\tif (mode & ~S_IRWXO)")
+
+          # kernel/sys.c (برای فعال شدن قابلیت Seccomp)
+          patch("kernel/sys.c",
+          "SYSCALL_DEFINE5(prctl, int, option, unsigned long, arg2, unsigned long, arg3,\n"
+          "\t\tunsigned long, arg4, unsigned long, arg5)",
+          "#ifdef CONFIG_KSU\n"
+          "extern int ksu_handle_prctl(int option, unsigned long arg2, unsigned long arg3, unsigned long arg4, unsigned long arg5, int *result);\n"
+          "#endif\n"
+          "SYSCALL_DEFINE5(prctl, int, option, unsigned long, arg2, unsigned long, arg3,\n"
+          "\t\tunsigned long, arg4, unsigned long, arg5)")
+
+          patch("kernel/sys.c",
+          "\terror = security_task_prctl(option, arg2, arg3, arg4, arg5);",
+          "#ifdef CONFIG_KSU\n"
+          "\t{\n"
+          "\t\tint ksu_ret;\n"
+          "\t\tif (ksu_handle_prctl(option, arg2, arg3, arg4, arg5, &ksu_ret))\n"
+          "\t\t\treturn ksu_ret;\n"
+          "\t}\n"
+          "#endif\n"
+          "\terror = security_task_prctl(option, arg2, arg3, arg4, arg5);")
+
 
           # fs/read_write.c  (hook AFTER struct fd declaration)
           patch("fs/read_write.c",
@@ -233,26 +243,6 @@ jobs:
           "{\n"
           "#ifdef CONFIG_KSU\n"
           "\tksu_handle_bprm_committing_creds(bprm);\n"
-          "#endif\n")
-
-          # kernel/sys.c (برای سبز شدن وضعیت Seccomp و SuCompat)
-          patch("kernel/sys.c",
-          "SYSCALL_DEFINE5(prctl, int, option, unsigned long, arg2, unsigned long, arg3,\n"
-          "\t\tunsigned long, arg4, unsigned long, arg5)\n"
-          "{\n"
-          "\tint error = 0;\n",
-          "#ifdef CONFIG_KSU\n"
-          "extern int ksu_handle_prctl(int option, unsigned long arg2, unsigned long arg3,\n"
-          "\t\t\t    unsigned long arg4, unsigned long arg5, int *result);\n"
-          "#endif\n"
-          "SYSCALL_DEFINE5(prctl, int, option, unsigned long, arg2, unsigned long, arg3,\n"
-          "\t\tunsigned long, arg4, unsigned long, arg5)\n"
-          "{\n"
-          "\tint error = 0;\n"
-          "#ifdef CONFIG_KSU\n"
-          "\tint ksu_ret;\n"
-          "\tif (ksu_handle_prctl(option, arg2, arg3, arg4, arg5, &ksu_ret))\n"
-          "\t\treturn ksu_ret;\n"
           "#endif\n")
 
           print("done")
