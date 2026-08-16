@@ -227,6 +227,7 @@ jobs:
 
           python3 /tmp/apply_hooks.py
 
+
       - name: Add KernelSU configs
         run: |
           set -e
@@ -239,9 +240,36 @@ jobs:
           CONFIG_KSU=y
           CONFIG_KSU_MANUAL_HOOK=y
           # CONFIG_KSU_KPROBES_HOOK is not set
+
+          # ==========================================
+          # REQUIRED FEATURES FOR MODULES AND SAVING
+          # ==========================================
+          # 1. OverlayFS for Modules support
+          CONFIG_OVERLAY_FS=y
+
+          # 2. Loop Device for mounting module images
+          CONFIG_BLK_DEV_LOOP=y
+          CONFIG_BLK_DEV_LOOP_MIN_COUNT=16
+
+          # 3. Namespaces for Root App Persistence and Isolation
+          CONFIG_NAMESPACES=y
+          CONFIG_USER_NS=y
+          CONFIG_IPC_NS=y
+          CONFIG_UTS_NS=y
+          CONFIG_PID_NS=y
+          CONFIG_MULTIUSER=y
+
+          # 4. TMPFS for temporary system interactions
+          CONFIG_TMPFS=y
+          CONFIG_TMPFS_POSIX_ACL=y
+
+          # 5. Config Reader for Manager app (Optional but recommended)
+          CONFIG_IKCONFIG=y
+          CONFIG_IKCONFIG_PROC=y
           EOF
           echo "configs added"
-          tail -8 "$DEFCONFIG"
+          tail -20 "$DEFCONFIG"
+
 
       - name: Verify
         run: |
