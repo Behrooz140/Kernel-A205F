@@ -33,7 +33,7 @@ jobs:
           set -e
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
 
-            - name: Add KernelSU App Profile Diagnostic
+      - name: Add KernelSU App Profile Diagnostic
         run: |
           set -e
 
