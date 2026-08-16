@@ -18,20 +18,10 @@ jobs:
       PLATFORM_VERSION: 11
 
     steps:
-
-      # ============================================================
-      # 1. CHECKOUT
-      # ============================================================
-
-      - name: Checkout Kernel
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
-
-
-      # ============================================================
-      # 2. DEPENDENCIES
-      # ============================================================
 
       - name: Install dependencies
         run: |
@@ -56,55 +46,38 @@ jobs:
             zip \
             curl
 
-
-      # ============================================================
-      # 3. INSTALL KERNELSU NEXT v3.2.0 LEGACY
-      # ============================================================
-
-      - name: Integrate KernelSU Next v3.2.0 Legacy
+      - name: Integrate KernelSU Next
         run: |
           set -e
 
-          echo "================================================"
-          echo " Installing KernelSU Next v3.2.0 Legacy"
-          echo "================================================"
+          echo "========================================"
+          echo " Installing KernelSU Next"
+          echo "========================================"
 
           curl -LSs \
             "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" \
             | bash -s legacy
 
           echo
-          echo "===== KERNELSU SOURCE ====="
+          echo "===== KSU VERSION ====="
 
           if [ -d KernelSU-Next ]; then
-            git -C KernelSU-Next fetch --tags --quiet || true
-
-            echo "Commit:"
             git -C KernelSU-Next log -1 --oneline || true
-
-            echo "Tag:"
             git -C KernelSU-Next describe --tags --always || true
           fi
 
           echo
-          echo "===== KSU FILES ====="
+          echo "===== KSU DIRECTORY ====="
 
-          find drivers/kernelsu -maxdepth 2 -type f | sort | head -200
+          find drivers/kernelsu -maxdepth 2 -type f 2>/dev/null | sort | head -200
 
-
-      # ============================================================
-      # 4. FORCE / VERIFY v3.2.0 LEGACY
-      # ============================================================
-
-      - name: Verify KernelSU Legacy Integration
+      - name: Inspect KernelSU App Profile
         run: |
           set -e
 
-          echo "===== KERNELSU KBUILD ====="
-
-          test -f drivers/kernelsu/Kbuild
-
-          grep -n "KernelSU-Next" drivers/kernelsu/Kbuild || true
+          echo "========================================"
+          echo " KernelSU App Profile inspection"
+          echo "========================================"
 
           echo
           echo "===== APP PROFILE ====="
@@ -121,7 +94,7 @@ jobs:
             drivers/kernelsu 2>/dev/null | head -200 || true
 
           echo
-          echo "===== SUPERCALL ====="
+          echo "===== SUPERCALL / IOCTL ====="
 
           grep -RniE \
             'supercall|KSU_IOCTL' \
@@ -133,188 +106,115 @@ jobs:
           find drivers/kernelsu \
             -type f \
             \( -iname '*profile*' -o -iname '*allow*' -o -iname '*supercall*' \) \
-            -print | sort
-
-
-      # ============================================================
-      # 5. KERNELSU COMPATIBILITY FIXES
-      # ============================================================
+            -print 2>/dev/null | sort || true
 
       - name: Fix KernelSU for GCC 4.9 and Kernel 4.4
         run: |
           set -e
 
-          echo "================================================"
+          echo "========================================"
           echo " KernelSU compatibility fixes"
           echo " GCC 4.9 + Linux 4.4"
-          echo "================================================"
-
-          # --------------------------------------------------------
-          # Remove compiler flags unsupported by GCC 4.9
-          # --------------------------------------------------------
+          echo "========================================"
 
           find drivers/kernelsu -type f \
             \( -name "Makefile" -o -name "Kbuild" -o -name "*.mk" \) \
             2>/dev/null |
           while read -r f; do
-
             sed -i 's/-Wno-gcc-compat//g' "$f" || true
             sed -i 's/-Wno-int-conversion//g' "$f" || true
             sed -i 's/-Wno-implicit-function-declaration//g' "$f" || true
-
           done
 
-
-          # --------------------------------------------------------
-          # Disable Werror for KernelSU
-          # --------------------------------------------------------
-
           if [ -f drivers/kernelsu/Kbuild ]; then
-
             if ! grep -q "Wno-error" drivers/kernelsu/Kbuild; then
-
               cat >> drivers/kernelsu/Kbuild <<'EOF'
 
-# A205F / Linux 4.4 / GCC 4.9 compatibility
+# A205F Linux 4.4 / GCC 4.9 compatibility
 ccflags-y += -Wno-error
 ccflags-y += -Wno-implicit-function-declaration
 ccflags-y += -Wno-declaration-after-statement
 ccflags-y += -Wno-pointer-arith
 
 EOF
-
             fi
-
           fi
-
-
-          # --------------------------------------------------------
-          # in_compat_syscall compatibility
-          # --------------------------------------------------------
 
           for f in \
             drivers/kernelsu/sulog/event.c \
             drivers/kernelsu/runtime/ksud_integration.c
-
           do
-
-            if [ -f "$f" ] &&
-               ! grep -q "define in_compat_syscall" "$f"; then
-
-              sed -i \
-                '1i#ifndef in_compat_syscall\n#define in_compat_syscall() is_compat_task()\n#endif' \
-                "$f"
-
+            if [ -f "$f" ]; then
+              if ! grep -q "define in_compat_syscall" "$f"; then
+                sed -i \
+                  '1i#ifndef in_compat_syscall\n#define in_compat_syscall() is_compat_task()\n#endif' \
+                  "$f"
+              fi
             fi
-
           done
 
-
-          # --------------------------------------------------------
-          # __nocfi compatibility
-          # --------------------------------------------------------
-
-          for f in drivers/kernelsu/feature/*.c
-          do
-
-            if [ -f "$f" ] &&
-               grep -q "__nocfi" "$f" &&
-               ! grep -q "define __nocfi" "$f"; then
-
-              sed -i \
-                '1i#ifndef __nocfi\n#define __nocfi\n#endif' \
-                "$f"
-
+          for f in drivers/kernelsu/feature/*.c; do
+            if [ -f "$f" ]; then
+              if grep -q "__nocfi" "$f"; then
+                if ! grep -q "define __nocfi" "$f"; then
+                  sed -i \
+                    '1i#ifndef __nocfi\n#define __nocfi\n#endif' \
+                    "$f"
+                fi
+              fi
             fi
-
           done
-
-
-          # --------------------------------------------------------
-          # su_mount_ns
-          # --------------------------------------------------------
 
           if [ -f drivers/kernelsu/infra/su_mount_ns.c ]; then
-
             sed -i \
               's/long ret = ns_get_path(/long ret = (long)ns_get_path(/g' \
               drivers/kernelsu/infra/su_mount_ns.c || true
-
           fi
 
-
-          # --------------------------------------------------------
-          # ksud_integration copy_to_iter
-          # --------------------------------------------------------
-
           if [ -f drivers/kernelsu/runtime/ksud_integration.c ]; then
-
             sed -i \
               's/copy_to_iter(KERNEL_SU_RC + ksu_rc_pos/copy_to_iter((void *)(KERNEL_SU_RC + ksu_rc_pos)/g' \
               drivers/kernelsu/runtime/ksud_integration.c || true
-
           fi
 
-
-          # --------------------------------------------------------
-          # ALIGN_DOWN
-          # --------------------------------------------------------
-
           if [ -f drivers/kernelsu/feature/adb_root.c ]; then
-
-            if ! grep -q "define ALIGN_DOWN" \
-              drivers/kernelsu/feature/adb_root.c; then
-
+            if ! grep -q "define ALIGN_DOWN" drivers/kernelsu/feature/adb_root.c; then
               sed -i \
-                '1i#ifndef ALIGN_DOWN\n#define ALIGN_DOWN(x, a) ((x) & ~((typeof(x))(a) - 1))\n#endif' \
+                '1i#ifndef ALIGN_DOWN\n#define ALIGN_DOWN(x, a) ((x) \& ~((typeof(x))(a) - 1))\n#endif' \
                 drivers/kernelsu/feature/adb_root.c
-
             fi
-
           fi
 
           echo "[OK] Compatibility fixes applied"
 
-
-      # ============================================================
-      # 6. MANUAL HOOKS
-      # ============================================================
-
-      - name: Apply Manual KernelSU Hooks
+      - name: Apply Manual Hooks
         run: |
           set -e
 
-          cat > /tmp/apply_hooks.py <<'PYEOF'
-
+          python3 <<'PYEOF'
           import os
-
 
           def patch(path, old, new):
               if not os.path.exists(path):
                   print("[!] missing:", path)
-                  return False
+                  return
 
               with open(path, "r", encoding="utf-8", errors="ignore") as f:
                   data = f.read()
 
               if old not in data:
                   print("[*] pattern not found:", path)
-                  return False
+                  return
+
+              data = data.replace(old, new, 1)
 
               with open(path, "w", encoding="utf-8") as f:
-                  f.write(data.replace(old, new, 1))
+                  f.write(data)
 
               print("[+] patched:", path)
-              return True
-
-
-          # ========================================================
-          # fs/exec.c
-          # ========================================================
 
           patch(
               "fs/exec.c",
-
               """int do_execve(struct filename *filename,
               const char __user *const __user *__argv,
               const char __user *const __user *__envp)
@@ -322,7 +222,6 @@ EOF
               struct user_arg_ptr argv = { .ptr.native = __argv };
               struct user_arg_ptr envp = { .ptr.native = __envp };
           """,
-
               """#ifdef CONFIG_KSU
           extern int ksu_handle_execveat(
               int *fd,
@@ -350,14 +249,8 @@ EOF
           """
           )
 
-
-          # ========================================================
-          # fs/open.c
-          # ========================================================
-
           patch(
               "fs/open.c",
-
               """SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)
           {
               const struct cred *old_cred;
@@ -367,7 +260,6 @@ EOF
               int res;
               unsigned int lookup_flags = LOOKUP_FOLLOW;
           """,
-
               """#ifdef CONFIG_KSU
           extern int ksu_handle_faccessat(
               int *dfd,
@@ -395,25 +287,13 @@ EOF
           """
           )
 
-
-          # ========================================================
-          # fs/read_write.c
-          #
-          # IMPORTANT:
-          # KernelSU Legacy expects char __user **.
-          # Kernel 4.4 may expose buf as const-qualified.
-          # Explicit cast avoids the GCC/old-kernel qualifier issue.
-          # ========================================================
-
           patch(
               "fs/read_write.c",
-
               """SYSCALL_DEFINE3(read, unsigned int, fd, char __user *, buf, size_t, count)
           {
               struct fd f = fdget_pos(fd);
               ssize_t ret = -EBADF;
           """,
-
               """#ifdef CONFIG_KSU
           extern bool ksu_vfs_read_hook __read_mostly;
           extern __attribute__((cold)) int ksu_handle_sys_read(
@@ -437,21 +317,14 @@ EOF
           """
           )
 
-
-          # ========================================================
-          # fs/stat.c
-          # ========================================================
-
           patch(
               "fs/stat.c",
-
               """SYSCALL_DEFINE4(newfstatat, int, dfd, const char __user *, filename,
-                      struct stat __user *, statbuf, int, flag)
+              struct stat __user *, statbuf, int, flag)
           {
               struct kstat stat;
               int error;
           """,
-
               """#ifdef CONFIG_KSU
           extern int ksu_handle_stat(
               int *dfd,
@@ -460,7 +333,7 @@ EOF
           #endif
 
           SYSCALL_DEFINE4(newfstatat, int, dfd, const char __user *, filename,
-                      struct stat __user *, statbuf, int, flag)
+              struct stat __user *, statbuf, int, flag)
           {
               struct kstat stat;
               int error;
@@ -474,22 +347,15 @@ EOF
           """
           )
 
-
-          # ========================================================
-          # kernel/reboot.c
-          # ========================================================
-
           patch(
               "kernel/reboot.c",
-
               """SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,
-                      void __user *, arg)
+              void __user *, arg)
           {
               struct pid_namespace *pid_ns = task_active_pid_ns(current);
               char buffer[256];
               int ret = 0;
           """,
-
               """#ifdef CONFIG_KSU
           extern int ksu_handle_sys_reboot(
               int magic1,
@@ -499,7 +365,7 @@ EOF
           #endif
 
           SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,
-                      void __user *, arg)
+              void __user *, arg)
           {
               struct pid_namespace *pid_ns = task_active_pid_ns(current);
               char buffer[256];
@@ -515,19 +381,10 @@ EOF
           """
           )
 
-
-          print("Manual hooks finished.")
-
+          print("[OK] Manual hooks processed")
           PYEOF
 
-          python3 /tmp/apply_hooks.py
-
-
-      # ============================================================
-      # 7. KSU CONFIG
-      # ============================================================
-
-      - name: Configure KernelSU
+      - name: Add KernelSU Configuration
         run: |
           set -e
 
@@ -535,7 +392,6 @@ EOF
 
           test -f "$DEFCONFIG"
 
-          # Remove previous KSU/KPROBE settings
           sed -i '/CONFIG_KSU/d' "$DEFCONFIG"
           sed -i '/CONFIG_KPROBE/d' "$DEFCONFIG"
           sed -i '/CONFIG_HAVE_KPROBES/d' "$DEFCONFIG"
@@ -543,75 +399,51 @@ EOF
 
           cat >> "$DEFCONFIG" <<'EOF'
 
-          # =========================================================
-          # KernelSU Next v3.2.0 Legacy
-          # =========================================================
+# KernelSU Next v3.2.0 Legacy
+CONFIG_KSU=y
+CONFIG_KSU_MANUAL_HOOK=y
+# CONFIG_KPROBES is not set
+# CONFIG_HAVE_KPROBES is not set
+# CONFIG_KPROBE_EVENTS is not set
+EOF
 
-          CONFIG_KSU=y
-          CONFIG_KSU_MANUAL_HOOK=y
+          echo "===== KSU DEFCONFIG ====="
+          tail -12 "$DEFCONFIG"
 
-          # KPROBES disabled because A205F uses manual hooks
-          # CONFIG_KPROBES is not set
-          # CONFIG_HAVE_KPROBES is not set
-          # CONFIG_KPROBE_EVENTS is not set
-
-          EOF
-
-          echo
-          echo "===== KSU CONFIG ====="
-          tail -15 "$DEFCONFIG"
-
-
-      # ============================================================
-      # 8. VERIFY SOURCE + APP PROFILE IMPLEMENTATION
-      # ============================================================
-
-      - name: Verify App Profile Implementation
+      - name: Verify KernelSU Hooks
         run: |
           set -e
 
-          echo "================================================"
-          echo " KernelSU App Profile verification"
-          echo "================================================"
+          echo "===== HOOK CHECK ====="
+
+          grep -q "ksu_handle_execveat" fs/exec.c
+          echo "[OK] execve"
+
+          grep -q "ksu_handle_faccessat" fs/open.c
+          echo "[OK] faccessat"
+
+          grep -q "ksu_handle_sys_read" fs/read_write.c
+          echo "[OK] read"
+
+          grep -q "ksu_handle_stat" fs/stat.c
+          echo "[OK] stat"
+
+          grep -q "ksu_handle_sys_reboot" kernel/reboot.c
+          echo "[OK] reboot"
 
           echo
-          echo "===== KSU CONFIG ====="
-          grep -E \
-            'CONFIG_KSU=|CONFIG_KSU_MANUAL_HOOK|CONFIG_KPROBES|CONFIG_HAVE_KPROBES|CONFIG_KPROBE_EVENTS' \
-            arch/arm64/configs/exynos7885-a20_defconfig || true
-
-          echo
-          echo "===== APP PROFILE SYMBOLS ====="
+          echo "===== APP PROFILE SOURCE ====="
 
           grep -RniE \
-            'KSU_IOCTL_SET_APP_PROFILE|KSU_IOCTL_GET_APP_PROFILE|SET_APP_PROFILE|GET_APP_PROFILE' \
+            'SET_APP_PROFILE|GET_APP_PROFILE' \
             drivers/kernelsu 2>/dev/null || true
 
           echo
-          echo "===== ALLOWLIST SYMBOLS ====="
+          echo "===== ALLOWLIST SOURCE ====="
 
           grep -RniE \
             'allowlist|allow_list' \
-            drivers/kernelsu 2>/dev/null | head -150 || true
-
-          echo
-          echo "===== SUPERCALL SYMBOLS ====="
-
-          grep -RniE \
-            'KSU_IOCTL|supercall' \
-            drivers/kernelsu 2>/dev/null | head -200 || true
-
-          echo
-          echo "===== MANUAL HOOK SYMBOLS ====="
-
-          grep -RniE \
-            'ksu_handle_execveat|ksu_handle_faccessat|ksu_handle_sys_read|ksu_handle_stat|ksu_handle_sys_reboot' \
-            fs kernel 2>/dev/null | head -150 || true
-
-
-      # ============================================================
-      # 9. VERIFY TOOLCHAIN
-      # ============================================================
+            drivers/kernelsu 2>/dev/null | head -100 || true
 
       - name: Verify Toolchain
         run: |
@@ -619,17 +451,11 @@ EOF
 
           TOOLCHAIN="$GITHUB_WORKSPACE/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9"
 
-          test -x \
-            "$TOOLCHAIN/bin/aarch64-linux-android-gcc"
+          test -x "$TOOLCHAIN/bin/aarch64-linux-android-gcc"
 
           "$TOOLCHAIN/bin/aarch64-linux-android-gcc" --version
 
           make kernelversion
-
-
-      # ============================================================
-      # 10. GENERATE DEFCONFIG
-      # ============================================================
 
       - name: Configure Kernel
         run: |
@@ -646,76 +472,40 @@ EOF
             exynos7885-a20_defconfig
 
           echo
-          echo "===== FINAL .CONFIG ====="
+          echo "===== FINAL CONFIG ====="
 
           grep -E \
             'CONFIG_KSU=|CONFIG_KSU_MANUAL_HOOK|CONFIG_KPROBES|CONFIG_HAVE_KPROBES|CONFIG_KPROBE_EVENTS' \
             .config || true
 
-
-      # ============================================================
-      # 11. VERIFY FINAL CONFIG
-      # ============================================================
-
       - name: Verify Final Config
         run: |
           set -e
 
-          echo "===== KSU ====="
-
           grep -q '^CONFIG_KSU=y$' .config
-
           echo "[OK] CONFIG_KSU=y"
 
           grep -q '^CONFIG_KSU_MANUAL_HOOK=y$' .config
-
           echo "[OK] CONFIG_KSU_MANUAL_HOOK=y"
 
-
-          echo
-          echo "===== KPROBES ====="
-
           if grep -q '^CONFIG_KPROBES=y$' .config; then
-            echo "[ERROR] CONFIG_KPROBES is still enabled!"
+            echo "[ERROR] CONFIG_KPROBES is enabled"
             exit 1
           fi
 
           if grep -q '^CONFIG_KPROBE_EVENTS=y$' .config; then
-            echo "[ERROR] CONFIG_KPROBE_EVENTS is still enabled!"
+            echo "[ERROR] CONFIG_KPROBE_EVENTS is enabled"
             exit 1
           fi
 
           echo "[OK] KPROBES disabled"
 
-
-          echo
-          echo "===== HOOKS ====="
-
-          grep -q 'ksu_handle_execveat' fs/exec.c
-          grep -q 'ksu_handle_faccessat' fs/open.c
-          grep -q 'ksu_handle_sys_read' fs/read_write.c
-          grep -q 'ksu_handle_stat' fs/stat.c
-          grep -q 'ksu_handle_sys_reboot' kernel/reboot.c
-
-          echo "[OK] Manual hooks detected"
-
-
-      # ============================================================
-      # 12. CLEAN HOST DTC
-      # ============================================================
-
       - name: Clean Host Tools
         run: |
-          rm -f \
-            scripts/dtc/dtc \
-            scripts/dtc/*.o \
-            scripts/dtc/dtc-lexer.lex.o \
-            scripts/dtc/dtc-parser.tab.o
-
-
-      # ============================================================
-      # 13. BUILD
-      # ============================================================
+          rm -f scripts/dtc/dtc
+          rm -f scripts/dtc/*.o
+          rm -f scripts/dtc/dtc-lexer.lex.o
+          rm -f scripts/dtc/dtc-parser.tab.o
 
       - name: Build Kernel
         run: |
@@ -725,16 +515,15 @@ EOF
 
           export PATH="$TOOLCHAIN/bin:$PATH"
           export CROSS_COMPILE="$TOOLCHAIN/bin/aarch64-linux-android-"
-
           export HOSTCFLAGS="-fcommon"
           export HOSTCXXFLAGS="-fcommon"
 
           JOBS=$(nproc)
 
-          echo "=========================================="
-          echo " Building A205F Kernel"
+          echo "========================================"
+          echo " Building kernel"
           echo " Jobs: $JOBS"
-          echo "=========================================="
+          echo "========================================"
 
           make \
             ARCH=arm64 \
@@ -743,29 +532,11 @@ EOF
             HOSTCXXFLAGS="$HOSTCXXFLAGS" \
             -j"$JOBS"
 
-
-      # ============================================================
-      # 14. POST BUILD KSU CHECK
-      # ============================================================
-
       - name: Post Build KernelSU Check
         if: success()
         run: |
           set -e
 
-          echo "=========================================="
-          echo " KernelSU post-build verification"
-          echo "=========================================="
-
-          echo
-          echo "===== KSU OBJECTS ====="
-
-          find drivers/kernelsu \
-            -type f \
-            \( -name '*.o' -o -name '*.a' \) \
-            -print | head -100 || true
-
-          echo
           echo "===== KSU CONFIG ====="
 
           grep -E \
@@ -773,41 +544,32 @@ EOF
             .config || true
 
           echo
-          echo "===== APP PROFILE SOURCE ====="
+          echo "===== APP PROFILE ====="
 
           grep -RniE \
             'SET_APP_PROFILE|GET_APP_PROFILE' \
             drivers/kernelsu 2>/dev/null || true
 
           echo
-          echo "===== ALLOWLIST SOURCE ====="
+          echo "===== KSU OBJECTS ====="
 
-          grep -RniE \
-            'allowlist|allow_list' \
-            drivers/kernelsu 2>/dev/null | head -100 || true
-
-
-      # ============================================================
-      # 15. PACKAGE
-      # ============================================================
+          find drivers/kernelsu \
+            -type f \
+            \( -name '*.o' -o -name '*.a' \) \
+            -print 2>/dev/null | head -100 || true
 
       - name: Package Artifacts
         if: success()
         run: |
           set -e
 
-          mkdir -p \
-            output/dtb \
-            output/dtbo
+          mkdir -p output/dtb
+          mkdir -p output/dtbo
 
-          cp -v \
-            arch/arm64/boot/Image \
-            output/Image
+          cp -v arch/arm64/boot/Image output/Image
 
           if [ -f arch/arm64/boot/Image.gz ]; then
-            cp -v \
-              arch/arm64/boot/Image.gz \
-              output/Image.gz
+            cp -v arch/arm64/boot/Image.gz output/Image.gz
           fi
 
           find arch/arm64/boot/dts \
@@ -822,21 +584,12 @@ EOF
             -exec cp -v {} output/dtbo/ \; \
             2>/dev/null || true
 
-          cp -v \
-            .config \
-            output/kernel.config
+          cp -v .config output/kernel.config
 
           echo
           echo "===== OUTPUT ====="
 
-          find output \
-            -type f \
-            -exec ls -lh {} \;
-
-
-      # ============================================================
-      # 16. UPLOAD
-      # ============================================================
+          find output -type f -exec ls -lh {} \;
 
       - name: Upload Artifact
         if: success()
