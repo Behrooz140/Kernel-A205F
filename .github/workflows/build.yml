@@ -46,37 +46,41 @@ jobs:
             sed -i 's/-Wno-implicit-function-declaration//g' "$f" || true
           done
 
-          # 2. Force no-error for KernelSU on this old toolchain
+          # 2. Force no-error for KernelSU
           if [ -f drivers/kernelsu/Kbuild ]; then
             if ! grep -q "Wno-error" drivers/kernelsu/Kbuild; then
-              echo "ccflags-y += -Wno-error -Wno-implicit-function-declaration -Wno-declaration-after-statement" >> drivers/kernelsu/Kbuild
+              echo "ccflags-y += -Wno-error -Wno-implicit-function-declaration -Wno-declaration-after-statement -Wno-pointer-arith" >> drivers/kernelsu/Kbuild
             fi
-            echo "Kbuild flags updated"
           fi
 
           # 3. Fix in_compat_syscall (not available on 4.4)
-          # Define it as is_compat_task() which exists on 4.4
           for f in drivers/kernelsu/sulog/event.c drivers/kernelsu/runtime/ksud_integration.c; do
-            if [ -f "$f" ]; then
-              if ! grep -q "define in_compat_syscall" "$f"; then
-                sed -i '1i#ifndef in_compat_syscall\n#define in_compat_syscall() is_compat_task()\n#endif' "$f"
-                echo "patched in_compat_syscall in $f"
-              fi
+            if [ -f "$f" ] && ! grep -q "define in_compat_syscall" "$f"; then
+              sed -i '1i#ifndef in_compat_syscall\n#define in_compat_syscall() is_compat_task()\n#endif' "$f"
+              echo "patched in_compat_syscall in $f"
             fi
           done
 
-          # 4. Fix pointer/integer cast in su_mount_ns.c if still present
+          # 4. Fix __nocfi (not supported on old GCC)
+          for f in drivers/kernelsu/feature/selinux_hide.c drivers/kernelsu/feature/*.c; do
+            if [ -f "$f" ] && grep -q "__nocfi" "$f" && ! grep -q "define __nocfi" "$f"; then
+              sed -i '1i#ifndef __nocfi\n#define __nocfi\n#endif' "$f"
+              echo "patched __nocfi in $f"
+            fi
+          done
+
+          # 5. Other small fixes
           if [ -f drivers/kernelsu/infra/su_mount_ns.c ]; then
             sed -i 's/long ret = ns_get_path(/long ret = (long)ns_get_path(/g' drivers/kernelsu/infra/su_mount_ns.c || true
+            echo "patched su_mount_ns.c"
           fi
 
-          # 5. Fix const discard for copy_to_iter if needed (cast away const)
           if [ -f drivers/kernelsu/runtime/ksud_integration.c ]; then
             sed -i 's/copy_to_iter(KERNEL_SU_RC + ksu_rc_pos/copy_to_iter((void *)(KERNEL_SU_RC + ksu_rc_pos)/g' drivers/kernelsu/runtime/ksud_integration.c || true
+            echo "patched ksud_integration.c"
           fi
 
           echo "Compatibility fixes applied"
-
 
       - name: Apply Manual Hooks
         run: |
