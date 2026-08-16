@@ -33,7 +33,7 @@ jobs:
           set -e
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
 
-      - name: Add KernelSU App Profile Diagnostic
+            - name: Add KernelSU App Profile Diagnostic
         run: |
           set -e
 
@@ -43,108 +43,62 @@ jobs:
 
           test -f "$FILE"
 
-          cp "$FILE" "${FILE}.bak"
-
           python3 - <<'PY'
           from pathlib import Path
 
           path = Path("drivers/kernelsu/policy/allowlist.c")
           data = path.read_text()
 
-          old = """static bool profile_valid(struct app_profile *profile)
-          {
-          \tif (!profile) {
-          \t\treturn false;
-          \t}
+          marker = "int ksu_set_app_profile(struct app_profile *profile)"
+          marker_pos = data.find(marker)
 
-          \tif (strnlen(profile->key, sizeof(profile->key)) >= sizeof(profile->key)) {
-          \t\tpr_err("invalid app_profile key\\n");
-          \t\treturn false;
+          if marker_pos == -1:
+              raise SystemExit("ksu_set_app_profile() not found")
+
+          target = "    if (!profile_valid(profile)) {"
+
+          pos = data.find(target, marker_pos)
+
+          if pos == -1:
+              target = "\tif (!profile_valid(profile)) {"
+              pos = data.find(target, marker_pos)
+
+          if pos == -1:
+              raise SystemExit("profile_valid() call not found")
+
+          diagnostic = r'''    pr_info("KSU_PROFILE_DEBUG: SET key=%s uid=%d version=%u allow_su=%d\n",
+                  profile ? profile->key : "<NULL>",
+                  profile ? profile->current_uid : -1,
+                  profile ? profile->version : 0,
+                  profile ? profile->allow_su : 0);
+
+          if (profile && profile->allow_su) {
+              pr_info("KSU_PROFILE_DEBUG: groups=%u domain=%s\n",
+                      profile->rp_config.profile.groups_count,
+                      profile->rp_config.profile.selinux_domain);
           }
 
-          \tif (profile->version != KSU_APP_PROFILE_VER) {
-          \t\tpr_info("Unsupported profile version: %d\\n", profile->version);
-          \t\treturn false;
-          }
-          """
+          '''
 
-          new = """static bool profile_valid(struct app_profile *profile)
-          {
-          \tif (!profile) {
-          \t\tpr_err("KSU_PROFILE_DEBUG: NULL profile\\\\n");
-          \t\treturn false;
-          \t}
-
-          \tpr_info("KSU_PROFILE_DEBUG: key=%s uid=%d version=%u allow_su=%d\\\\n",
-          \t\tprofile->key,
-          \t\tprofile->current_uid,
-          \t\tprofile->version,
-          \t\tprofile->allow_su);
-
-          \tif (strnlen(profile->key, sizeof(profile->key)) >= sizeof(profile->key)) {
-          \t\tpr_err("KSU_PROFILE_DEBUG: INVALID KEY\\\\n");
-          \t\treturn false;
-          }
-
-          \tif (profile->version != KSU_APP_PROFILE_VER) {
-          \t\tpr_err("KSU_PROFILE_DEBUG: INVALID VERSION=%u EXPECTED=%u\\\\n",
-          \t\t\tprofile->version,
-          \t\t\tKSU_APP_PROFILE_VER);
-          \t\treturn false;
-          }
-          """
-
-          if old not in data:
-              raise SystemExit("profile_valid pattern not found")
-
-          data = data.replace(old, new, 1)
-
-          old2 = """\t\tif (profile->rp_config.profile.groups_count > KSU_MAX_GROUPS) {
-          \t\t\tpr_err("invalid groups_count in app_profile: %s\\n", profile->key);
-          \t\t\treturn false;
-          }
-          """
-
-          new2 = """\t\tif (profile->rp_config.profile.groups_count > KSU_MAX_GROUPS) {
-          \t\t\tpr_err("KSU_PROFILE_DEBUG: INVALID GROUPS=%u MAX=%u KEY=%s\\\\n",
-          \t\t\t\tprofile->rp_config.profile.groups_count,
-          \t\t\t\tKSU_MAX_GROUPS,
-          \t\t\t\tprofile->key);
-          \t\t\treturn false;
-          }
-          """
-
-          if old2 not in data:
-              raise SystemExit("groups_count pattern not found")
-
-          data = data.replace(old2, new2, 1)
-
-          old3 = """\t\tif (len == 0 || len >= domain_len) {
-          \t\t\tpr_err("invalid selinux_domain in app_profile: %s\\n", profile->key);
-          \t\t\treturn false;
-          }
-          """
-
-          new3 = """\t\tif (len == 0 || len >= domain_len) {
-          \t\t\tpr_err("KSU_PROFILE_DEBUG: INVALID SELINUX DOMAIN key=%s len=%zu domain=%s\\\\n",
-          \t\t\t\tprofile->key,
-          \t\t\t\tlen,
-          \t\t\t\tprofile->rp_config.profile.selinux_domain);
-          \t\t\treturn false;
-          }
-          """
-
-          if old3 not in data:
-              raise SystemExit("selinux_domain pattern not found")
-
-          data = data.replace(old3, new3, 1)
+          data = data[:pos] + diagnostic + data[pos:]
 
           path.write_text(data)
           PY
 
           echo "[OK] App Profile diagnostic installed"
 
-          grep -n "KSU_PROFILE_DEBUG" \
+          echo
+          echo "===== VERIFY DIAGNOSTIC ====="
+
+          grep -n -A12 \
+            "KSU_PROFILE_DEBUG: SET" \
+            drivers/kernelsu/policy/allowlist.c
+
+          echo
+          echo "===== VERIFY PROFILE VALIDATION ====="
+
+          grep -n -A45 \
+            "static bool profile_valid" \
             drivers/kernelsu/policy/allowlist.c
 
 
