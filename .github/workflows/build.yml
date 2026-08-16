@@ -222,6 +222,39 @@ jobs:
           "\tksu_handle_sys_reboot(magic1, magic2, cmd, &arg);\n"
           "#endif\n")
 
+          # security/security.c (هوک حیاتی برای دور زدن SELinux و ذخیره تنظیمات)
+          patch("security/security.c",
+          "void security_bprm_committing_creds(struct linux_binprm *bprm)\n"
+          "{\n",
+          "#ifdef CONFIG_KSU\n"
+          "extern void ksu_handle_bprm_committing_creds(struct linux_binprm *bprm);\n"
+          "#endif\n"
+          "void security_bprm_committing_creds(struct linux_binprm *bprm)\n"
+          "{\n"
+          "#ifdef CONFIG_KSU\n"
+          "\tksu_handle_bprm_committing_creds(bprm);\n"
+          "#endif\n")
+
+          # kernel/sys.c (برای سبز شدن وضعیت Seccomp و SuCompat)
+          patch("kernel/sys.c",
+          "SYSCALL_DEFINE5(prctl, int, option, unsigned long, arg2, unsigned long, arg3,\n"
+          "\t\tunsigned long, arg4, unsigned long, arg5)\n"
+          "{\n"
+          "\tint error = 0;\n",
+          "#ifdef CONFIG_KSU\n"
+          "extern int ksu_handle_prctl(int option, unsigned long arg2, unsigned long arg3,\n"
+          "\t\t\t    unsigned long arg4, unsigned long arg5, int *result);\n"
+          "#endif\n"
+          "SYSCALL_DEFINE5(prctl, int, option, unsigned long, arg2, unsigned long, arg3,\n"
+          "\t\tunsigned long, arg4, unsigned long, arg5)\n"
+          "{\n"
+          "\tint error = 0;\n"
+          "#ifdef CONFIG_KSU\n"
+          "\tint ksu_ret;\n"
+          "\tif (ksu_handle_prctl(option, arg2, arg3, arg4, arg5, &ksu_ret))\n"
+          "\t\treturn ksu_ret;\n"
+          "#endif\n")
+
           print("done")
           EOF
 
