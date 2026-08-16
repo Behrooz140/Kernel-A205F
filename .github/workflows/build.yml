@@ -1,4 +1,4 @@
-name: Build A205F Kernel
+name: Build A205F Kernel + KernelSU Next
 
 on:
   workflow_dispatch:
@@ -26,7 +26,6 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-
           sudo apt-get install -y \
             bc \
             bison \
@@ -41,7 +40,43 @@ jobs:
             python3 \
             rsync \
             unzip \
-            zip
+            zip \
+            curl
+
+      - name: Integrate KernelSU Next (legacy)
+        shell: bash
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "Integrating KernelSU Next (legacy)"
+          echo "========================================"
+
+          # ادغام KernelSU Next
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
+
+          # اضافه کردن کانفیگ‌های لازم به defconfig
+          DEFCONFIG="arch/arm64/configs/exynos7885-a20_defconfig"
+
+          if [ ! -f "$DEFCONFIG" ]; then
+            echo "Error: defconfig not found at $DEFCONFIG"
+            exit 1
+          fi
+
+          if ! grep -q "^CONFIG_KSU=y" "$DEFCONFIG"; then
+            echo "" >> "$DEFCONFIG"
+            echo "# KernelSU Next" >> "$DEFCONFIG"
+            echo "CONFIG_KSU=y" >> "$DEFCONFIG"
+            echo "CONFIG_KPROBES=y" >> "$DEFCONFIG"
+            echo "CONFIG_KPROBE_EVENTS=y" >> "$DEFCONFIG"
+            echo "CONFIG_KSU_KPROBE_HOOKS=y" >> "$DEFCONFIG"
+            echo "KernelSU configs added to defconfig"
+          else
+            echo "KernelSU configs already present in defconfig"
+          fi
+
+          echo
+          echo "KernelSU integration completed."
 
       - name: Verify kernel source
         shell: bash
@@ -67,6 +102,11 @@ jobs:
           echo "Kernel version:"
           make kernelversion
 
+          echo
+          echo "Checking KernelSU integration..."
+          test -d KernelSU-Next || test -d drivers/kernelsu
+          echo "KernelSU found."
+
       - name: Configure
         shell: bash
         run: |
@@ -91,6 +131,11 @@ jobs:
 
           test -f .config
 
+          # نمایش وضعیت KernelSU در .config
+          echo
+          echo "KernelSU related configs:"
+          grep -E "CONFIG_KSU|CONFIG_KPROBE" .config || true
+
       - name: Clean host tools
         shell: bash
         run: |
@@ -114,7 +159,7 @@ jobs:
           export HOSTCXXFLAGS="-fcommon"
 
           echo "========================================"
-          echo "Building A205F kernel"
+          echo "Building A205F kernel + KernelSU Next"
           echo "========================================"
 
           echo "ARCH=$ARCH"
@@ -213,7 +258,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: A205F-kernel
+          name: A205F-kernel-KernelSU-Next
           path: output/
           if-no-files-found: error
           retention-days: 14
