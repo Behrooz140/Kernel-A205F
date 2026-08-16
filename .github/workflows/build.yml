@@ -34,7 +34,7 @@ jobs:
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
 
 
-            - name: Analyze App Profile Path
+      - name: Analyze App Profile Path
         run: |
           set -e
 
