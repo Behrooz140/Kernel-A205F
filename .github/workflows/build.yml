@@ -1,4 +1,4 @@
-name: Build A205F Kernel + KernelSU Next
+name: Build A205F Kernel + SukiSU Ultra
 
 on:
   workflow_dispatch:
@@ -28,25 +28,26 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y bc bison build-essential ccache flex git libelf-dev libncurses5-dev libssl-dev lz4 python3 rsync unzip zip curl
 
-      - name: Integrate KernelSU Next
+      - name: Integrate SukiSU Ultra (builtin)
         run: |
           set -e
-          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
+          echo "Integrating SukiSU Ultra (builtin)..."
+          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s builtin
+          echo "SukiSU integrated."
 
-
-      - name: Fix KernelSU for old GCC 4.9 and kernel 4.4
+      - name: Fix SukiSU for old GCC 4.9 and kernel 4.4
         run: |
           set -e
-          echo "Fixing KernelSU for GCC 4.9 + kernel 4.4..."
+          echo "Fixing SukiSU for GCC 4.9 + kernel 4.4..."
 
           # 1. Remove unsupported compiler flags
-          find KernelSU-Next drivers/kernelsu -type f \( -name "Makefile" -o -name "Kbuild" -o -name "*.mk" \) 2>/dev/null | while read f; do
+          find KernelSU drivers/kernelsu -type f \( -name "Makefile" -o -name "Kbuild" -o -name "*.mk" \) 2>/dev/null | while read f; do
             sed -i 's/-Wno-gcc-compat//g' "$f" || true
             sed -i 's/-Wno-int-conversion//g' "$f" || true
             sed -i 's/-Wno-implicit-function-declaration//g' "$f" || true
           done
 
-          # 2. Force no-error for KernelSU
+          # 2. Force no-error for SukiSU
           if [ -f drivers/kernelsu/Kbuild ]; then
             if ! grep -q "Wno-error" drivers/kernelsu/Kbuild; then
               echo "ccflags-y += -Wno-error -Wno-implicit-function-declaration -Wno-declaration-after-statement -Wno-pointer-arith" >> drivers/kernelsu/Kbuild
@@ -80,7 +81,6 @@ jobs:
             echo "patched ksud_integration.c"
           fi
 
-          # Fix ALIGN_DOWN (missing on kernel 4.4)
           if [ -f drivers/kernelsu/feature/adb_root.c ]; then
             if ! grep -q "define ALIGN_DOWN" drivers/kernelsu/feature/adb_root.c; then
               sed -i '1i#ifndef ALIGN_DOWN\n#define ALIGN_DOWN(x, a) ((x) & \~((typeof(x))(a) - 1))\n#endif' drivers/kernelsu/feature/adb_root.c
@@ -132,7 +132,7 @@ jobs:
           "\tksu_handle_execveat((int *)AT_FDCWD, &filename, &argv, &envp, 0);\n"
           "#endif\n")
 
-          # fs/open.c  (hook AFTER all declarations)
+          # fs/open.c
           patch("fs/open.c",
           "SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)\n"
           "{\n"
@@ -159,7 +159,7 @@ jobs:
           "\tksu_handle_faccessat(&dfd, &filename, &mode, NULL);\n"
           "#endif\n")
 
-          # fs/read_write.c  (hook AFTER struct fd declaration)
+          # fs/read_write.c
           patch("fs/read_write.c",
           "SYSCALL_DEFINE3(read, unsigned int, fd, char __user *, buf, size_t, count)\n"
           "{\n"
@@ -226,21 +226,24 @@ jobs:
 
           python3 /tmp/apply_hooks.py
 
-      - name: Add KernelSU configs
+      - name: Add SukiSU configs
         run: |
           set -e
           DEFCONFIG="arch/arm64/configs/exynos7885-a20_defconfig"
           sed -i '/CONFIG_KSU/d' "$DEFCONFIG"
           sed -i '/CONFIG_KPROBE/d' "$DEFCONFIG"
+          sed -i '/CONFIG_KALLSYMS/d' "$DEFCONFIG"
           cat >> "$DEFCONFIG" << 'EOF'
 
-          # KernelSU Next (Manual Hooks for 4.4)
+          # SukiSU Ultra (Manual Hooks for 4.4)
           CONFIG_KSU=y
           CONFIG_KSU_MANUAL_HOOK=y
           # CONFIG_KSU_KPROBES_HOOK is not set
+          CONFIG_KALLSYMS=y
+          CONFIG_KALLSYMS_ALL=y
           EOF
           echo "configs added"
-          tail -8 "$DEFCONFIG"
+          tail -12 "$DEFCONFIG"
 
       - name: Verify
         run: |
@@ -251,6 +254,8 @@ jobs:
           test -x "$TOOLCHAIN/bin/aarch64-linux-android-gcc"
           "$TOOLCHAIN/bin/aarch64-linux-android-gcc" --version
           make kernelversion
+          test -d KernelSU || test -d drivers/kernelsu
+          echo "SukiSU directory found."
           grep -q "ksu_handle_sys_reboot" kernel/reboot.c && echo "[OK] reboot" || echo "[WARN] reboot"
           grep -q "ksu_handle_execveat" fs/exec.c && echo "[OK] execve" || echo "[WARN] execve"
           grep -q "ksu_handle_faccessat" fs/open.c && echo "[OK] faccessat" || echo "[WARN] faccessat"
@@ -264,12 +269,11 @@ jobs:
           export PATH="$TOOLCHAIN/bin:$PATH"
           export CROSS_COMPILE="$TOOLCHAIN/bin/aarch64-linux-android-"
           make ARCH=arm64 CROSS_COMPILE="$CROSS_COMPILE" exynos7885-a20_defconfig
-          grep -E "CONFIG_KSU|CONFIG_KPROBE" .config || true
+          grep -E "CONFIG_KSU|CONFIG_KPROBE|CONFIG_KALLSYMS" .config || true
 
       - name: Clean host tools
         run: |
           rm -f scripts/dtc/dtc scripts/dtc/*.o scripts/dtc/dtc-lexer.lex.o scripts/dtc/dtc-parser.tab.o
-
 
       - name: Build kernel
         run: |
@@ -282,7 +286,6 @@ jobs:
           JOBS=$(nproc)
           echo "Using $JOBS jobs"
           make ARCH=arm64 CROSS_COMPILE="$CROSS_COMPILE" HOSTCFLAGS="$HOSTCFLAGS" HOSTCXXFLAGS="$HOSTCXXFLAGS" -j$JOBS
-
 
       - name: Package artifacts
         if: success()
@@ -300,7 +303,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: A205F-kernel-KernelSU-Next
+          name: A205F-kernel-SukiSU-Ultra
           path: output/
           if-no-files-found: error
           retention-days: 14
