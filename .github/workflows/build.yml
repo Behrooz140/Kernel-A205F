@@ -34,33 +34,6 @@ jobs:
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
 
 
-      - name: Dump App Profile Implementation
-        run: |
-          set -e
-
-          echo "========================================"
-          echo " KSU APP PROFILE IMPLEMENTATION"
-          echo "========================================"
-
-          echo
-          echo "===== allowlist.c 130-310 ====="
-
-          sed -n '130,310p' \
-            drivers/kernelsu/policy/allowlist.c
-
-          echo
-          echo "===== dispatch.c 320-380 ====="
-
-          sed -n '320,380p' \
-            drivers/kernelsu/supercall/dispatch.c
-
-          echo
-          echo "===== dispatch.c 950-985 ====="
-
-          sed -n '950,985p' \
-            drivers/kernelsu/supercall/dispatch.c
-
-
       - name: Fix KernelSU for old GCC 4.9 and kernel 4.4
         run: |
           set -e
@@ -293,6 +266,58 @@ jobs:
           export CROSS_COMPILE="$TOOLCHAIN/bin/aarch64-linux-android-"
           make ARCH=arm64 CROSS_COMPILE="$CROSS_COMPILE" exynos7885-a20_defconfig
           grep -E "CONFIG_KSU|CONFIG_KPROBE" .config || true
+
+
+      - name: Verify KernelSU Policy Configuration
+        run: |
+          set -e
+
+          echo "========================================"
+          echo " KSU POLICY CONFIGURATION"
+          echo "========================================"
+
+          echo
+          echo "===== KSU CONFIG ====="
+
+          grep -E \
+            '^CONFIG_KSU=|^CONFIG_KSU_MANUAL_HOOK=|^CONFIG_KSU_KPROBES_HOOK=|^CONFIG_KSU_DISABLE_POLICY=' \
+            .config \
+            || true
+
+          echo
+          echo "===== DEFCONFIG ====="
+
+          grep -E \
+            'CONFIG_KSU|CONFIG_KPROBE' \
+            arch/arm64/configs/exynos7885-a20_defconfig \
+            || true
+
+          echo
+          echo "===== POLICY CHECK ====="
+
+          if grep -q '^CONFIG_KSU_DISABLE_POLICY=y' .config; then
+            echo "[ERROR] CONFIG_KSU_DISABLE_POLICY=y"
+            echo "[ERROR] App Profile policy is disabled!"
+            exit 1
+          else
+            echo "[OK] KernelSU policy is enabled"
+          fi
+
+          echo
+          echo "===== APP PROFILE VERSION ====="
+
+          grep -Rni \
+            'KSU_APP_PROFILE_VER' \
+            drivers/kernelsu \
+            2>/dev/null \
+            | head -20 \
+            || true
+
+          echo
+          echo "========================================"
+          echo " Policy configuration check completed"
+          echo "========================================"
+
 
       - name: Clean host tools
         run: |
