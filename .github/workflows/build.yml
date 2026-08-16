@@ -199,6 +199,7 @@ jobs:
         run: |
           rm -f scripts/dtc/dtc scripts/dtc/*.o scripts/dtc/dtc-lexer.lex.o scripts/dtc/dtc-parser.tab.o
 
+
       - name: Build kernel
         run: |
           set -e
@@ -207,7 +208,10 @@ jobs:
           export CROSS_COMPILE="$TOOLCHAIN/bin/aarch64-linux-android-"
           export HOSTCFLAGS="-fcommon"
           export HOSTCXXFLAGS="-fcommon"
-          make ARCH=arm64 CROSS_COMPILE="$CROSS_COMPILE" HOSTCFLAGS="$HOSTCFLAGS" HOSTCXXFLAGS="\( HOSTCXXFLAGS" -j" \)(nproc)"
+          JOBS=$(nproc)
+          echo "Using $JOBS jobs"
+          make ARCH=arm64 CROSS_COMPILE="$CROSS_COMPILE" HOSTCFLAGS="$HOSTCFLAGS" HOSTCXXFLAGS="$HOSTCXXFLAGS" -j$JOBS
+
 
       - name: Package artifacts
         if: success()
