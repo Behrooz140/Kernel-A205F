@@ -526,6 +526,64 @@ jobs:
         run: |
           rm -f scripts/dtc/dtc scripts/dtc/*.o scripts/dtc/dtc-lexer.lex.o scripts/dtc/dtc-parser.tab.o
 
+
+      - name: Diagnose KSU Manager Permission
+        run: |
+          set -e
+
+          echo "========================================"
+          echo " KSU MANAGER PERMISSION DIAGNOSTIC"
+          echo "========================================"
+
+          echo
+          echo "===== perm.c ====="
+
+          sed -n '1,180p' \
+            drivers/kernelsu/supercall/perm.c
+
+          echo
+          echo "===== only_manager REFERENCES ====="
+
+          grep -Rni -A8 -B8 \
+            "only_manager" \
+            drivers/kernelsu \
+            2>/dev/null \
+            || true
+
+          echo
+          echo "===== manager_or_root REFERENCES ====="
+
+          grep -Rni -A8 -B8 \
+            "manager_or_root" \
+            drivers/kernelsu \
+            2>/dev/null \
+            || true
+
+          echo
+          echo "===== MANAGER APP ID ====="
+
+          grep -Rni -A10 -B10 \
+            "ksu_get_manager_appid" \
+            drivers/kernelsu \
+            2>/dev/null \
+            || true
+
+          echo
+          echo "===== IS_MANAGER ====="
+
+          grep -Rni -A10 -B10 \
+            "is_manager" \
+            drivers/kernelsu \
+            2>/dev/null \
+            | head -200 \
+            || true
+
+          echo
+          echo "========================================"
+          echo " MANAGER PERMISSION DIAGNOSTIC DONE"
+          echo "========================================"
+
+
       - name: Build kernel
         run: |
           set -e
