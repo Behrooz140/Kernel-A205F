@@ -80,6 +80,14 @@ jobs:
             echo "patched ksud_integration.c"
           fi
 
+          # Fix ALIGN_DOWN (missing on kernel 4.4)
+          if [ -f drivers/kernelsu/feature/adb_root.c ]; then
+            if ! grep -q "define ALIGN_DOWN" drivers/kernelsu/feature/adb_root.c; then
+              sed -i '1i#ifndef ALIGN_DOWN\n#define ALIGN_DOWN(x, a) ((x) & \~((typeof(x))(a) - 1))\n#endif' drivers/kernelsu/feature/adb_root.c
+              echo "patched ALIGN_DOWN in adb_root.c"
+            fi
+          fi
+
           echo "Compatibility fixes applied"
 
       - name: Apply Manual Hooks
