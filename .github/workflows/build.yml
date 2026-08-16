@@ -43,7 +43,7 @@ jobs:
             zip \
             curl
 
-      - name: Integrate KernelSU Next (legacy)
+      - name: Integrate KernelSU Next (legacy + Manual Hooks)
         shell: bash
         run: |
           set -e
@@ -52,31 +52,148 @@ jobs:
           echo "Integrating KernelSU Next (legacy)"
           echo "========================================"
 
-          # ادغام KernelSU Next
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
 
-          # اضافه کردن کانفیگ‌های لازم به defconfig
-          DEFCONFIG="arch/arm64/configs/exynos7885-a20_defconfig"
+          echo
+          echo "========================================"
+          echo "Applying Manual Hooks (required for kernel 4.4)"
+          echo "========================================"
 
-          if [ ! -f "$DEFCONFIG" ]; then
-            echo "Error: defconfig not found at $DEFCONFIG"
-            exit 1
+          # ---------- 1. fs/exec.c ----------
+          if ! grep -q "ksu_handle_execveat" fs/exec.c; then
+            # اضافه کردن declaration
+            sed -i '/^int do_execve(struct filename \*filename,/i\
+#ifdef CONFIG_KSU\n\
+__attribute__((hot))\n\
+extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr,\n\
+\t\t\t\tvoid *argv, void *envp, int *flags);\n\
+#endif' fs/exec.c
+
+            # پچ do_execve
+            sed -i '/^int do_execve(struct filename \*filename,/,/^}$/{
+              /struct user_arg_ptr envp = { .ptr.native = __envp };/a\
+#ifdef CONFIG_KSU\n\
+\tksu_handle_execveat((int *)AT_FDCWD, \&filename, \&argv, \&envp, 0);\n\
+#endif
+            }' fs/exec.c
+
+            # پچ compat_do_execve (اگر وجود داشته باشه)
+            if grep -q "compat_do_execve" fs/exec.c; then
+              sed -i '/compat_do_execve/,/^}$/{
+                /\.is_compat = true,/a\
+#ifdef CONFIG_KSU\n\
+\tksu_handle_execveat((int *)AT_FDCWD, \&filename, \&argv, \&envp, 0);\n\
+#endif
+              }' fs/exec.c
+            fi
+            echo "[+] fs/exec.c patched"
+          else
+            echo "[*] fs/exec.c already patched"
           fi
 
-          if ! grep -q "^CONFIG_KSU=y" "$DEFCONFIG"; then
-            echo "" >> "$DEFCONFIG"
-            echo "# KernelSU Next" >> "$DEFCONFIG"
-            echo "CONFIG_KSU=y" >> "$DEFCONFIG"
-            echo "CONFIG_KPROBES=y" >> "$DEFCONFIG"
-            echo "CONFIG_KPROBE_EVENTS=y" >> "$DEFCONFIG"
-            echo "CONFIG_KSU_KPROBE_HOOKS=y" >> "$DEFCONFIG"
-            echo "KernelSU configs added to defconfig"
+          # ---------- 2. fs/open.c ----------
+          if ! grep -q "ksu_handle_faccessat" fs/open.c; then
+            sed -i '/SYSCALL_DEFINE3(faccessat,/i\
+#ifdef CONFIG_KSU\n\
+__attribute__((hot))\n\
+extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user,\n\
+\t\t\t\tint *mode, int *flags);\n\
+#endif' fs/open.c
+
+            sed -i '/SYSCALL_DEFINE3(faccessat,/,/^}$/{
+              /unsigned int lookup_flags = LOOKUP_FOLLOW;/a\
+#ifdef CONFIG_KSU\n\
+\tksu_handle_faccessat(\&dfd, \&filename, \&mode, NULL);\n\
+#endif
+            }' fs/open.c
+            echo "[+] fs/open.c patched"
           else
-            echo "KernelSU configs already present in defconfig"
+            echo "[*] fs/open.c already patched"
+          fi
+
+          # ---------- 3. fs/read_write.c ----------
+          if ! grep -q "ksu_handle_sys_read" fs/read_write.c; then
+            sed -i '/SYSCALL_DEFINE3(read,/i\
+#ifdef CONFIG_KSU\n\
+extern bool ksu_vfs_read_hook __read_mostly;\n\
+extern __attribute__((cold)) int ksu_handle_sys_read(unsigned int fd,\n\
+\t\t\t\tchar __user **buf_ptr, size_t *count_ptr);\n\
+#endif' fs/read_write.c
+
+            sed -i '/SYSCALL_DEFINE3(read,/,/^}$/{
+              /struct fd f = fdget_pos(fd);/a\
+#ifdef CONFIG_KSU\n\
+\tif (unlikely(ksu_vfs_read_hook))\n\
+\t\tksu_handle_sys_read(fd, \&buf, \&count);\n\
+#endif
+            }' fs/read_write.c
+            echo "[+] fs/read_write.c patched"
+          else
+            echo "[*] fs/read_write.c already patched"
+          fi
+
+          # ---------- 4. fs/stat.c ----------
+          if ! grep -q "ksu_handle_stat" fs/stat.c; then
+            sed -i '/SYSCALL_DEFINE4(newfstatat,/i\
+#ifdef CONFIG_KSU\n\
+__attribute__((hot))\n\
+extern int ksu_handle_stat(int *dfd, const char __user **filename_user,\n\
+\t\t\t\tint *flags);\n\
+#endif' fs/stat.c
+
+            sed -i '/SYSCALL_DEFINE4(newfstatat,/,/^}$/{
+              /struct kstat stat;/a\
+#ifdef CONFIG_KSU\n\
+\tksu_handle_stat(\&dfd, \&filename, \&flag);\n\
+#endif
+            }' fs/stat.c
+            echo "[+] fs/stat.c patched"
+          else
+            echo "[*] fs/stat.c already patched"
+          fi
+
+          # ---------- 5. kernel/reboot.c (مهم‌ترین برای چک Kbuild) ----------
+          if ! grep -q "ksu_handle_sys_reboot" kernel/reboot.c; then
+            sed -i '/SYSCALL_DEFINE4(reboot,/i\
+#ifdef CONFIG_KSU\n\
+extern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);\n\
+#endif' kernel/reboot.c
+
+            sed -i '/SYSCALL_DEFINE4(reboot,/,/^}$/{
+              /struct pid_namespace \*pid_ns = task_active_pid_ns(current);/a\
+#ifdef CONFIG_KSU\n\
+\tksu_handle_sys_reboot(magic1, magic2, cmd, \&arg);\n\
+#endif
+            }' kernel/reboot.c
+            echo "[+] kernel/reboot.c patched"
+          else
+            echo "[*] kernel/reboot.c already patched"
           fi
 
           echo
-          echo "KernelSU integration completed."
+          echo "Manual hooks applied successfully."
+
+          # ---------- اضافه کردن کانفیگ‌ها به defconfig ----------
+          DEFCONFIG="arch/arm64/configs/exynos7885-a20_defconfig"
+
+          if [ ! -f "$DEFCONFIG" ]; then
+            echo "Error: defconfig not found!"
+            exit 1
+          fi
+
+          # پاک کردن کانفیگ‌های قبلی KernelSU اگر وجود داشته باشه
+          sed -i '/CONFIG_KSU/d' "$DEFCONFIG"
+          sed -i '/CONFIG_KPROBE/d' "$DEFCONFIG"
+
+          cat >> "$DEFCONFIG" << 'EOF'
+
+# KernelSU Next (Manual Hooks for 4.4)
+CONFIG_KSU=y
+CONFIG_KSU_MANUAL_HOOK=y
+# CONFIG_KSU_KPROBES_HOOK is not set
+EOF
+
+          echo "KernelSU configs written to defconfig"
 
       - name: Verify kernel source
         shell: bash
@@ -84,14 +201,13 @@ jobs:
           set -e
 
           echo "========================================"
-          echo "Kernel source"
+          echo "Kernel source verification"
           echo "========================================"
 
           test -f Makefile
           test -f arch/arm64/configs/exynos7885-a20_defconfig
 
           TOOLCHAIN="$GITHUB_WORKSPACE/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9"
-
           test -d "$TOOLCHAIN"
           test -x "$TOOLCHAIN/bin/aarch64-linux-android-gcc"
 
@@ -103,9 +219,17 @@ jobs:
           make kernelversion
 
           echo
-          echo "Checking KernelSU integration..."
+          echo "Checking KernelSU..."
           test -d KernelSU-Next || test -d drivers/kernelsu
-          echo "KernelSU found."
+          echo "KernelSU directory found."
+
+          echo
+          echo "Checking Manual Hooks..."
+          grep -q "ksu_handle_sys_reboot" kernel/reboot.c && echo "[OK] reboot hook"
+          grep -q "ksu_handle_execveat" fs/exec.c && echo "[OK] execve hook"
+          grep -q "ksu_handle_faccessat" fs/open.c && echo "[OK] faccessat hook"
+          grep -q "ksu_handle_sys_read" fs/read_write.c && echo "[OK] read hook"
+          grep -q "ksu_handle_stat" fs/stat.c && echo "[OK] stat hook"
 
       - name: Configure
         shell: bash
@@ -113,7 +237,6 @@ jobs:
           set -e
 
           TOOLCHAIN="$GITHUB_WORKSPACE/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9"
-
           export PATH="$TOOLCHAIN/bin:$PATH"
           export CROSS_COMPILE="$TOOLCHAIN/bin/aarch64-linux-android-"
 
@@ -126,14 +249,10 @@ jobs:
             CROSS_COMPILE="$CROSS_COMPILE" \
             exynos7885-a20_defconfig
 
-          echo
-          echo "Config generated successfully."
-
           test -f .config
 
-          # نمایش وضعیت KernelSU در .config
           echo
-          echo "KernelSU related configs:"
+          echo "KernelSU related configs in .config:"
           grep -E "CONFIG_KSU|CONFIG_KPROBE" .config || true
 
       - name: Clean host tools
@@ -150,21 +269,15 @@ jobs:
           set -e
 
           TOOLCHAIN="$GITHUB_WORKSPACE/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9"
-
           export PATH="$TOOLCHAIN/bin:$PATH"
           export CROSS_COMPILE="$TOOLCHAIN/bin/aarch64-linux-android-"
 
-          # Old Samsung kernel DTC requires GCC common-symbol behavior.
           export HOSTCFLAGS="-fcommon"
           export HOSTCXXFLAGS="-fcommon"
 
           echo "========================================"
-          echo "Building A205F kernel + KernelSU Next"
+          echo "Building A205F kernel + KernelSU Next (Manual Hooks)"
           echo "========================================"
-
-          echo "ARCH=$ARCH"
-          echo "CROSS_COMPILE=$CROSS_COMPILE"
-          echo "HOSTCFLAGS=$HOSTCFLAGS"
 
           make \
             ARCH=arm64 \
@@ -187,28 +300,15 @@ jobs:
 
           echo
           echo "Compressed images:"
-          find arch/arm64/boot \
-            -maxdepth 1 \
-            -type f \
-            \( -name 'Image*' -o -name 'zImage' \) \
-            -exec ls -lh {} \; \
-            2>/dev/null || true
+          find arch/arm64/boot -maxdepth 1 -type f \( -name 'Image*' -o -name 'zImage' \) -exec ls -lh {} \; 2>/dev/null || true
 
           echo
           echo "DTB files:"
-          find arch/arm64/boot/dts \
-            -type f \
-            -name '*.dtb' \
-            -exec ls -lh {} \; \
-            2>/dev/null || true
+          find arch/arm64/boot/dts -type f -name '*.dtb' -exec ls -lh {} \; 2>/dev/null || true
 
           echo
           echo "DTBO files:"
-          find arch/arm64/boot/dts \
-            -type f \
-            -name '*.dtbo' \
-            -exec ls -lh {} \; \
-            2>/dev/null || true
+          find arch/arm64/boot/dts -type f -name '*.dtbo' -exec ls -lh {} \; 2>/dev/null || true
 
       - name: Package artifacts
         if: success()
@@ -219,12 +319,7 @@ jobs:
           mkdir -p output/dtb
           mkdir -p output/dtbo
 
-          echo "========================================"
-          echo "Collecting kernel"
-          echo "========================================"
-
           test -f arch/arm64/boot/Image
-
           cp -v arch/arm64/boot/Image output/Image
 
           if [ -f arch/arm64/boot/Image.gz ]; then
@@ -232,26 +327,14 @@ jobs:
           fi
 
           if [ -d arch/arm64/boot/dts ]; then
-            find arch/arm64/boot/dts \
-              -type f \
-              -name '*.dtb' \
-              -exec cp -v {} output/dtb/ \; \
-              || true
-
-            find arch/arm64/boot/dts \
-              -type f \
-              -name '*.dtbo' \
-              -exec cp -v {} output/dtbo/ \; \
-              || true
+            find arch/arm64/boot/dts -type f -name '*.dtb' -exec cp -v {} output/dtb/ \; || true
+            find arch/arm64/boot/dts -type f -name '*.dtbo' -exec cp -v {} output/dtbo/ \; || true
           fi
 
           cp -v .config output/kernel.config
 
           echo
-          echo "========================================"
-          echo "Final artifacts"
-          echo "========================================"
-
+          echo "Final artifacts:"
           find output -type f -exec ls -lh {} \;
 
       - name: Upload kernel artifact
