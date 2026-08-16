@@ -28,7 +28,6 @@ jobs:
           set -e
 
           sudo apt-get update
-
           sudo apt-get install -y \
             bc \
             bison \
@@ -51,14 +50,11 @@ jobs:
           set -e
 
           echo "========================================"
-          echo " Installing KernelSU Next"
+          echo "Installing KernelSU Next"
           echo "========================================"
 
-          curl -LSs \
-            "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" \
-            | bash -s legacy
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
 
-          echo
           echo "===== KSU VERSION ====="
 
           if [ -d KernelSU-Next ]; then
@@ -66,7 +62,6 @@ jobs:
             git -C KernelSU-Next describe --tags --always || true
           fi
 
-          echo
           echo "===== KSU DIRECTORY ====="
 
           find drivers/kernelsu -maxdepth 2 -type f 2>/dev/null | sort | head -200
@@ -75,50 +70,47 @@ jobs:
         run: |
           set -e
 
-          echo "========================================"
-          echo " KernelSU App Profile inspection"
-          echo "========================================"
-
-          echo
           echo "===== APP PROFILE ====="
 
           grep -RniE \
             'SET_APP_PROFILE|GET_APP_PROFILE|APP_PROFILE' \
             drivers/kernelsu 2>/dev/null | head -200 || true
 
-          echo
           echo "===== ALLOWLIST ====="
 
           grep -RniE \
             'allowlist|allow_list' \
             drivers/kernelsu 2>/dev/null | head -200 || true
 
-          echo
           echo "===== SUPERCALL / IOCTL ====="
 
           grep -RniE \
             'supercall|KSU_IOCTL' \
             drivers/kernelsu 2>/dev/null | head -250 || true
 
-          echo
           echo "===== PROFILE FILES ====="
 
           find drivers/kernelsu \
             -type f \
-            \( -iname '*profile*' -o -iname '*allow*' -o -iname '*supercall*' \) \
+            \( \
+              -iname '*profile*' \
+              -o -iname '*allow*' \
+              -o -iname '*supercall*' \
+            \) \
             -print 2>/dev/null | sort || true
 
       - name: Fix KernelSU for GCC 4.9 and Kernel 4.4
         run: |
           set -e
 
-          echo "========================================"
-          echo " KernelSU compatibility fixes"
-          echo " GCC 4.9 + Linux 4.4"
-          echo "========================================"
+          echo "===== KernelSU compatibility fixes ====="
 
           find drivers/kernelsu -type f \
-            \( -name "Makefile" -o -name "Kbuild" -o -name "*.mk" \) \
+            \( \
+              -name "Makefile" \
+              -o -name "Kbuild" \
+              -o -name "*.mk" \
+            \) \
             2>/dev/null |
           while read -r f; do
             sed -i 's/-Wno-gcc-compat//g' "$f" || true
@@ -130,13 +122,13 @@ jobs:
             if ! grep -q "Wno-error" drivers/kernelsu/Kbuild; then
               cat >> drivers/kernelsu/Kbuild <<'EOF'
 
-# A205F Linux 4.4 / GCC 4.9 compatibility
-ccflags-y += -Wno-error
-ccflags-y += -Wno-implicit-function-declaration
-ccflags-y += -Wno-declaration-after-statement
-ccflags-y += -Wno-pointer-arith
+          # A205F Linux 4.4 / GCC 4.9 compatibility
+          ccflags-y += -Wno-error
+          ccflags-y += -Wno-implicit-function-declaration
+          ccflags-y += -Wno-declaration-after-statement
+          ccflags-y += -Wno-pointer-arith
 
-EOF
+          EOF
             fi
           fi
 
@@ -191,7 +183,7 @@ EOF
         run: |
           set -e
 
-          python3 <<'PYEOF'
+          cat > /tmp/apply_hooks.py <<'PYEOF'
           import os
 
           def patch(path, old, new):
@@ -384,6 +376,8 @@ EOF
           print("[OK] Manual hooks processed")
           PYEOF
 
+          python3 /tmp/apply_hooks.py
+
       - name: Add KernelSU Configuration
         run: |
           set -e
@@ -399,22 +393,22 @@ EOF
 
           cat >> "$DEFCONFIG" <<'EOF'
 
-# KernelSU Next v3.2.0 Legacy
-CONFIG_KSU=y
-CONFIG_KSU_MANUAL_HOOK=y
-# CONFIG_KPROBES is not set
-# CONFIG_HAVE_KPROBES is not set
-# CONFIG_KPROBE_EVENTS is not set
-EOF
+          # KernelSU Next v3.2.0 Legacy
+          CONFIG_KSU=y
+          CONFIG_KSU_MANUAL_HOOK=y
+          # CONFIG_KPROBES is not set
+          # CONFIG_HAVE_KPROBES is not set
+          # CONFIG_KPROBE_EVENTS is not set
+          EOF
 
           echo "===== KSU DEFCONFIG ====="
           tail -12 "$DEFCONFIG"
 
-      - name: Verify KernelSU Hooks
+      - name: Verify KernelSU
         run: |
           set -e
 
-          echo "===== HOOK CHECK ====="
+          echo "===== MANUAL HOOKS ====="
 
           grep -q "ksu_handle_execveat" fs/exec.c
           echo "[OK] execve"
@@ -432,14 +426,14 @@ EOF
           echo "[OK] reboot"
 
           echo
-          echo "===== APP PROFILE SOURCE ====="
+          echo "===== APP PROFILE ====="
 
           grep -RniE \
             'SET_APP_PROFILE|GET_APP_PROFILE' \
             drivers/kernelsu 2>/dev/null || true
 
           echo
-          echo "===== ALLOWLIST SOURCE ====="
+          echo "===== ALLOWLIST ====="
 
           grep -RniE \
             'allowlist|allow_list' \
@@ -471,7 +465,6 @@ EOF
             CROSS_COMPILE="$CROSS_COMPILE" \
             exynos7885-a20_defconfig
 
-          echo
           echo "===== FINAL CONFIG ====="
 
           grep -E \
@@ -520,10 +513,8 @@ EOF
 
           JOBS=$(nproc)
 
-          echo "========================================"
-          echo " Building kernel"
-          echo " Jobs: $JOBS"
-          echo "========================================"
+          echo "===== BUILD ====="
+          echo "Jobs: $JOBS"
 
           make \
             ARCH=arm64 \
@@ -532,7 +523,7 @@ EOF
             HOSTCXXFLAGS="$HOSTCXXFLAGS" \
             -j"$JOBS"
 
-      - name: Post Build KernelSU Check
+      - name: Post Build Check
         if: success()
         run: |
           set -e
@@ -586,10 +577,11 @@ EOF
 
           cp -v .config output/kernel.config
 
-          echo
           echo "===== OUTPUT ====="
 
-          find output -type f -exec ls -lh {} \;
+          find output \
+            -type f \
+            -exec ls -lh {} \;
 
       - name: Upload Artifact
         if: success()
