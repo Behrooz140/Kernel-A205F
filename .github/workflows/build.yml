@@ -211,11 +211,11 @@ jobs:
 
           cat >> "$DEFCONFIG" << 'EOF'
 
-# KernelSU Next (Manual Hooks for 4.4)
-CONFIG_KSU=y
-CONFIG_KSU_MANUAL_HOOK=y
-# CONFIG_KSU_KPROBES_HOOK is not set
-EOF
+          # KernelSU Next (Manual Hooks for 4.4)
+          CONFIG_KSU=y
+          CONFIG_KSU_MANUAL_HOOK=y
+          # CONFIG_KSU_KPROBES_HOOK is not set
+          EOF
 
           echo "KernelSU configs written to defconfig"
           tail -10 "$DEFCONFIG"
