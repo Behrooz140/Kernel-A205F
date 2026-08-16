@@ -326,6 +326,83 @@ jobs:
           grep -q "ksu_handle_sys_read" fs/read_write.c && echo "[OK] read" || echo "[WARN] read"
           grep -q "ksu_handle_stat" fs/stat.c && echo "[OK] stat" || echo "[WARN] stat"
 
+
+      - name: Diagnose KSU App Profile ioctl
+        run: |
+          set -e
+
+          echo "========================================"
+          echo " KSU APP PROFILE IOCTL DIAGNOSTIC"
+          echo "========================================"
+
+          echo
+          echo "===== SET APP PROFILE DEFINITION ====="
+
+          grep -Rni -A15 -B15 \
+            "KSU_IOCTL_SET_APP_PROFILE" \
+            drivers/kernelsu \
+            2>/dev/null \
+            || true
+
+          echo
+          echo "===== SET APP PROFILE HANDLER ====="
+
+          grep -Rni -A45 -B10 \
+            "do_set_app_profile" \
+            drivers/kernelsu \
+            2>/dev/null \
+            || true
+
+          echo
+          echo "===== IOCTL HANDLER TABLE ====="
+
+          grep -Rni -A12 -B12 \
+            "do_set_app_profile" \
+            drivers/kernelsu/supercall \
+            2>/dev/null \
+            || true
+
+          echo
+          echo "===== PERMISSION CHECKS ====="
+
+          grep -RniE \
+            "manager_or_root|perm_check|permission denied|ksu_ioctl_handlers" \
+            drivers/kernelsu/supercall \
+            2>/dev/null \
+            | head -200 \
+            || true
+
+          echo
+          echo "===== APP PROFILE VALIDATION ====="
+
+          grep -n -A50 -B5 \
+            "static bool profile_valid" \
+            drivers/kernelsu/policy/allowlist.c \
+            2>/dev/null \
+            || true
+
+          echo
+          echo "===== SET APP PROFILE IMPLEMENTATION ====="
+
+          grep -n -A130 -B10 \
+            "int ksu_set_app_profile" \
+            drivers/kernelsu/policy/allowlist.c \
+            2>/dev/null \
+            || true
+
+          echo
+          echo "===== POLICY CONFIG ====="
+
+          grep -E \
+            "^CONFIG_KSU=|^CONFIG_KSU_MANUAL_HOOK=|^CONFIG_KSU_KPROBES_HOOK=|^CONFIG_KSU_DISABLE_POLICY=" \
+            .config \
+            || true
+
+          echo
+          echo "========================================"
+          echo " DIAGNOSTIC COMPLETED"
+          echo "========================================"
+
       - name: Configure
         run: |
           set -e
