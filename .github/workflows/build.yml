@@ -623,6 +623,60 @@ jobs:
           echo "========================================"
 
 
+      - name: Diagnose KSU Manager AppID
+        run: |
+          set -e
+
+          echo "========================================"
+          echo " KSU MANAGER APPID DIAGNOSTIC"
+          echo "========================================"
+
+          echo
+          echo "===== MANAGER APPID REFERENCES ====="
+
+          grep -RniE \
+            'ksu_manager_appid|ksu_set_manager_appid|ksu_get_manager_appid|ksu_invalidate_manager_uid' \
+            drivers/kernelsu \
+            2>/dev/null \
+            | head -200 \
+            || true
+
+          echo
+          echo "===== MANAGER PERMISSION ====="
+
+          grep -RniE \
+            'only_manager|manager_or_root|is_manager\(' \
+            drivers/kernelsu \
+            2>/dev/null \
+            | head -100 \
+            || true
+
+          echo
+          echo "===== MANAGER PACKAGE ====="
+
+          grep -Rni \
+            'KSU_MANAGER_PACKAGE' \
+            drivers/kernelsu \
+            2>/dev/null \
+            | head -100 \
+            || true
+
+          echo
+          echo "===== CONFIG ====="
+
+          grep -E \
+            '^CONFIG_KSU|KSU_MANAGER_PACKAGE' \
+            .config \
+            drivers/kernelsu/Kbuild \
+            2>/dev/null \
+            || true
+
+          echo
+          echo "========================================"
+          echo " DIAGNOSTIC DONE"
+          echo "========================================"
+
+
       - name: Build kernel
         run: |
           set -e
