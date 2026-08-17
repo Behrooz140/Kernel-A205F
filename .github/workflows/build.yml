@@ -95,7 +95,6 @@ jobs:
         run: |
           set -e
           
-          # خاموش کردن قانون سخت‌گیرانه C90 
           sed -i 's/-Werror=declaration-after-statement//g' Makefile || true
           sed -i 's/-Wdeclaration-after-statement//g' Makefile || true
           
@@ -215,7 +214,36 @@ jobs:
           "\tksu_handle_sys_reboot(magic1, magic2, cmd, &arg);\n"
           "#endif\n")
 
-          # security/selinux/hooks.c (هوک نقطه‌زن و بی‌نقص برای حل ارور و دور زدن SELinux)
+          # =========================================================
+          # NEW: SECURITY BYPASS (GOD MODE FOR KSUD)
+          # =========================================================
+          
+          # دور زدن DEFEX برای اجازه دادن به اجرای فایل ksud
+          patch("security/security.c",
+          "int security_bprm_check(struct linux_binprm *bprm)\n{",
+          "int security_bprm_check(struct linux_binprm *bprm)\n{\n"
+          "\tif (bprm && bprm->file && bprm->file->f_path.dentry) {\n"
+          "\t\tconst char *name = bprm->file->f_path.dentry->d_name.name;\n"
+          "\t\tif (name && name[0]=='k' && name[1]=='s' && name[2]=='u' && name[3]=='d') return 0;\n"
+          "\t}\n")
+
+          # دور زدن قفل‌های فایلی برای اجازه ساخت دیتابیس توسط ksud
+          patch("security/security.c",
+          "int security_inode_permission(struct inode *inode, int mask)\n{",
+          "int security_inode_permission(struct inode *inode, int mask)\n{\n"
+          "\tif (current && current->comm[0]=='k' && current->comm[1]=='s' && current->comm[2]=='u' && current->comm[3]=='d') return 0;\n")
+
+          patch("security/security.c",
+          "int security_file_permission(struct file *file, int mask)\n{",
+          "int security_file_permission(struct file *file, int mask)\n{\n"
+          "\tif (current && current->comm[0]=='k' && current->comm[1]=='s' && current->comm[2]=='u' && current->comm[3]=='d') return 0;\n")
+          
+          patch("security/security.c",
+          "int security_file_open(struct file *file, const struct cred *cred)\n{",
+          "int security_file_open(struct file *file, const struct cred *cred)\n{\n"
+          "\tif (current && current->comm[0]=='k' && current->comm[1]=='s' && current->comm[2]=='u' && current->comm[3]=='d') return 0;\n")
+
+          # دادن دسترسی ادمین مطلق (SID=1) در SELinux
           patch("security/selinux/hooks.c",
           "new_tsec = bprm->cred->security;",
           "new_tsec = bprm->cred->security;\n"
@@ -238,13 +266,12 @@ jobs:
           python3 /tmp/apply_hooks.py
 
 
-
       - name: Add KernelSU configs
         run: |
           set -e
           DEFCONFIG="arch/arm64/configs/exynos7885-a20_defconfig"
           
-          # پاک کردن کدهای مزاحم سامسونگ و SELinux
+          # پاک کردن کدهای مزاحم سامسونگ (بدون دست زدن به SELinux)
           sed -i '/CONFIG_KSU/d' "$DEFCONFIG"
           sed -i '/CONFIG_KPROBE/d' "$DEFCONFIG"
           sed -i '/CONFIG_SECURITY_DEFEX/d' "$DEFCONFIG"
@@ -253,8 +280,6 @@ jobs:
           sed -i '/CONFIG_KNOX_KAP/d' "$DEFCONFIG"
           sed -i '/CONFIG_RKP_KDP/d' "$DEFCONFIG"
           sed -i '/CONFIG_SAMSUNG_FREECESS/d' "$DEFCONFIG"
-          sed -i '/CONFIG_ALWAYS_ENFORCE/d' "$DEFCONFIG"
-          sed -i '/CONFIG_SECURITY_SELINUX_BOOTPARAM_VALUE/d' "$DEFCONFIG"
           
           cat >> "$DEFCONFIG" << 'EOF'
 
@@ -285,15 +310,9 @@ jobs:
           # CONFIG_KNOX_KAP is not set
           # CONFIG_RKP_KDP is not set
           # CONFIG_SAMSUNG_FREECESS is not set
-
-          # اجبار SELinux به حالت Permissive
-          # CONFIG_ALWAYS_ENFORCE is not set
-          CONFIG_SECURITY_SELINUX_DEVELOP=y
-          CONFIG_SECURITY_SELINUX_BOOTPARAM=y
-          CONFIG_SECURITY_SELINUX_BOOTPARAM_VALUE=0
           EOF
           echo "configs added"
-          tail -30 "$DEFCONFIG"
+          tail -25 "$DEFCONFIG"
 
 
 
