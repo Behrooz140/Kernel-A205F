@@ -95,7 +95,7 @@ jobs:
         run: |
           set -e
           
-          # خاموش کردن قانون سخت‌گیرانه C90 برای اینکه کدهای ما بتوانند راحت تزریق شوند
+          # خاموش کردن قانون سخت‌گیرانه C90 
           sed -i 's/-Werror=declaration-after-statement//g' Makefile || true
           sed -i 's/-Wdeclaration-after-statement//g' Makefile || true
           
@@ -138,7 +138,7 @@ jobs:
           "\tksu_handle_execveat((int *)AT_FDCWD, &filename, &argv, &envp, 0);\n"
           "#endif\n")
 
-          # fs/open.c (هوک دونقطه‌ای برای مخفی‌سازی)
+          # fs/open.c
           patch("fs/open.c",
           "SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)",
           "#ifdef CONFIG_KSU\n"
@@ -215,7 +215,7 @@ jobs:
           "\tksu_handle_sys_reboot(magic1, magic2, cmd, &arg);\n"
           "#endif\n")
 
-          # kernel/sys.c (فعال‌سازی وضعیت Seccomp)
+          # kernel/sys.c
           patch("kernel/sys.c",
           "SYSCALL_DEFINE5(prctl, int, option, unsigned long, arg2, unsigned long, arg3,\n"
           "\t\tunsigned long, arg4, unsigned long, arg5)",
@@ -236,10 +236,10 @@ jobs:
           "#endif\n"
           "\terror = security_task_prctl(option, arg2, arg3, arg4, arg5);")
 
-          # security/selinux/hooks.c (هوک‌های اختصاصی برای پایداری روت و دور زدن دفاع سامسونگ)
+          # security/selinux/hooks.c (هوک نقطه‌زن و بی‌نقص برای حل ارور و دور زدن SELinux)
           patch("security/selinux/hooks.c",
-          "struct task_security_struct *new_tsec = bprm->cred->security;",
-          "struct task_security_struct *new_tsec = bprm->cred->security;\n"
+          "new_tsec = bprm->cred->security;",
+          "new_tsec = bprm->cred->security;\n"
           "\tif (new_tsec && bprm->file && bprm->file->f_path.dentry) {\n"
           "\t\tconst char *name = bprm->file->f_path.dentry->d_name.name;\n"
           "\t\tif (name && name[0]=='k' && name[1]=='s' && name[2]=='u' && name[3]=='d') {\n"
@@ -249,9 +249,9 @@ jobs:
           "\t}\n")
           
           patch("security/selinux/hooks.c",
-          "struct inode *inode = d_backing_inode(dentry);",
-          "struct inode *inode = d_backing_inode(dentry);\n"
-          "\tif (name && name[0]=='s' && name[9]=='k' && name[10]=='s' && name[11]=='u') return 0;\n")
+          "if (strcmp(name, XATTR_NAME_SELINUX))",
+          "if (name && name[0]=='s' && name[9]=='k' && name[10]=='s' && name[11]=='u') return 0;\n"
+          "\tif (strcmp(name, XATTR_NAME_SELINUX))")
 
           print("done")
           EOF
