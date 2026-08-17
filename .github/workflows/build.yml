@@ -244,7 +244,7 @@ jobs:
           set -e
           DEFCONFIG="arch/arm64/configs/exynos7885-a20_defconfig"
           
-          # پاک کردن کدهای مزاحم سامسونگ
+          # پاک کردن کدهای مزاحم سامسونگ و SELinux
           sed -i '/CONFIG_KSU/d' "$DEFCONFIG"
           sed -i '/CONFIG_KPROBE/d' "$DEFCONFIG"
           sed -i '/CONFIG_SECURITY_DEFEX/d' "$DEFCONFIG"
@@ -253,6 +253,8 @@ jobs:
           sed -i '/CONFIG_KNOX_KAP/d' "$DEFCONFIG"
           sed -i '/CONFIG_RKP_KDP/d' "$DEFCONFIG"
           sed -i '/CONFIG_SAMSUNG_FREECESS/d' "$DEFCONFIG"
+          sed -i '/CONFIG_ALWAYS_ENFORCE/d' "$DEFCONFIG"
+          sed -i '/CONFIG_SECURITY_SELINUX_BOOTPARAM_VALUE/d' "$DEFCONFIG"
           
           cat >> "$DEFCONFIG" << 'EOF'
 
@@ -283,6 +285,12 @@ jobs:
           # CONFIG_KNOX_KAP is not set
           # CONFIG_RKP_KDP is not set
           # CONFIG_SAMSUNG_FREECESS is not set
+
+          # اجبار SELinux به حالت Permissive
+          # CONFIG_ALWAYS_ENFORCE is not set
+          CONFIG_SECURITY_SELINUX_DEVELOP=y
+          CONFIG_SECURITY_SELINUX_BOOTPARAM=y
+          CONFIG_SECURITY_SELINUX_BOOTPARAM_VALUE=0
           EOF
           echo "configs added"
           tail -30 "$DEFCONFIG"
