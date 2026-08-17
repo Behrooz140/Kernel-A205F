@@ -133,44 +133,34 @@ jobs:
           "\tksu_handle_execveat((int *)AT_FDCWD, &filename, &argv, &envp, 0);\n"
           "#endif\n")
 
-          # fs/open.c (نسخه هوشمند برای سامسونگ)
+          # fs/open.c
           patch("fs/open.c",
-          "SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)",
+          "SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)\n"
+          "{\n"
+          "\tconst struct cred *old_cred;\n"
+          "\tstruct cred *override_cred;\n"
+          "\tstruct path path;\n"
+          "\tstruct inode *inode;\n"
+          "\tint res;\n"
+          "\tunsigned int lookup_flags = LOOKUP_FOLLOW;\n",
           "#ifdef CONFIG_KSU\n"
-          "extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user, int *mode, int *flags);\n"
+          "__attribute__((hot))\n"
+          "extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user,\n"
+          "\t\t\t\tint *mode, int *flags);\n"
           "#endif\n"
-          "SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)")
-
-          patch("fs/open.c",
-          "\tif (mode & ~S_IRWXO)",
+          "SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)\n"
+          "{\n"
+          "\tconst struct cred *old_cred;\n"
+          "\tstruct cred *override_cred;\n"
+          "\tstruct path path;\n"
+          "\tstruct inode *inode;\n"
+          "\tint res;\n"
+          "\tunsigned int lookup_flags = LOOKUP_FOLLOW;\n"
           "#ifdef CONFIG_KSU\n"
           "\tksu_handle_faccessat(&dfd, &filename, &mode, NULL);\n"
-          "#endif\n"
-          "\tif (mode & ~S_IRWXO)")
+          "#endif\n")
 
-          # kernel/sys.c (برای فعال شدن قابلیت Seccomp)
-          patch("kernel/sys.c",
-          "SYSCALL_DEFINE5(prctl, int, option, unsigned long, arg2, unsigned long, arg3,\n"
-          "\t\tunsigned long, arg4, unsigned long, arg5)",
-          "#ifdef CONFIG_KSU\n"
-          "extern int ksu_handle_prctl(int option, unsigned long arg2, unsigned long arg3, unsigned long arg4, unsigned long arg5, int *result);\n"
-          "#endif\n"
-          "SYSCALL_DEFINE5(prctl, int, option, unsigned long, arg2, unsigned long, arg3,\n"
-          "\t\tunsigned long, arg4, unsigned long, arg5)")
-
-          patch("kernel/sys.c",
-          "\terror = security_task_prctl(option, arg2, arg3, arg4, arg5);",
-          "#ifdef CONFIG_KSU\n"
-          "\t{\n"
-          "\t\tint ksu_ret;\n"
-          "\t\tif (ksu_handle_prctl(option, arg2, arg3, arg4, arg5, &ksu_ret))\n"
-          "\t\t\treturn ksu_ret;\n"
-          "\t}\n"
-          "#endif\n"
-          "\terror = security_task_prctl(option, arg2, arg3, arg4, arg5);")
-
-
-          # fs/read_write.c  (hook AFTER struct fd declaration)
+          # fs/read_write.c
           patch("fs/read_write.c",
           "SYSCALL_DEFINE3(read, unsigned int, fd, char __user *, buf, size_t, count)\n"
           "{\n"
@@ -232,18 +222,24 @@ jobs:
           "\tksu_handle_sys_reboot(magic1, magic2, cmd, &arg);\n"
           "#endif\n")
 
-          # security/security.c (هوک حیاتی برای دور زدن SELinux و ذخیره تنظیمات)
-          patch("security/security.c",
-          "void security_bprm_committing_creds(struct linux_binprm *bprm)\n"
-          "{\n",
-          "#ifdef CONFIG_KSU\n"
-          "extern void ksu_handle_bprm_committing_creds(struct linux_binprm *bprm);\n"
-          "#endif\n"
-          "void security_bprm_committing_creds(struct linux_binprm *bprm)\n"
-          "{\n"
-          "#ifdef CONFIG_KSU\n"
-          "\tksu_handle_bprm_committing_creds(bprm);\n"
-          "#endif\n")
+          # security/selinux/hooks.c (هوک جادویی برای دادن دسترسی نامحدود به ksud)
+          patch("security/selinux/hooks.c",
+          "static void selinux_bprm_committing_creds(struct linux_binprm *bprm)\n{",
+          "static void selinux_bprm_committing_creds(struct linux_binprm *bprm)\n{\n"
+          "\tstruct task_security_struct *new_tsec = bprm->cred->security;\n"
+          "\tif (new_tsec && bprm->file && bprm->file->f_path.dentry) {\n"
+          "\t\tconst char *name = bprm->file->f_path.dentry->d_name.name;\n"
+          "\t\tif (name && name[0]=='k' && name[1]=='s' && name[2]=='u' && name[3]=='d') {\n"
+          "\t\t\tnew_tsec->sid = 1; /* SECINITSID_KERNEL */\n"
+          "\t\t\tnew_tsec->osid = 1;\n"
+          "\t\t}\n"
+          "\t}\n")
+          
+          # دور زدن SELinux برای ذخیره فایل دسترسی‌ها (Allowlist)
+          patch("security/selinux/hooks.c",
+          "static int selinux_inode_setxattr(struct dentry *dentry, const char *name,\n\t\t\t\t  const void *value, size_t size, int flags)\n{",
+          "static int selinux_inode_setxattr(struct dentry *dentry, const char *name,\n\t\t\t\t  const void *value, size_t size, int flags)\n{\n"
+          "\tif (name && name[0]=='s' && name[9]=='k' && name[10]=='s' && name[11]=='u') return 0;\n")
 
           print("done")
           EOF
@@ -256,7 +252,7 @@ jobs:
           set -e
           DEFCONFIG="arch/arm64/configs/exynos7885-a20_defconfig"
           
-          # پاکسازی کانفیگ‌های قبلی و امنیتی سامسونگ
+          # پاک کردن کدهای مزاحم سامسونگ
           sed -i '/CONFIG_KSU/d' "$DEFCONFIG"
           sed -i '/CONFIG_KPROBE/d' "$DEFCONFIG"
           sed -i '/CONFIG_SECURITY_DEFEX/d' "$DEFCONFIG"
@@ -264,7 +260,6 @@ jobs:
           sed -i '/CONFIG_TIMA/d' "$DEFCONFIG"
           sed -i '/CONFIG_KNOX_KAP/d' "$DEFCONFIG"
           sed -i '/CONFIG_RKP_KDP/d' "$DEFCONFIG"
-          sed -i '/CONFIG_RKP_CFP/d' "$DEFCONFIG"
           sed -i '/CONFIG_SAMSUNG_FREECESS/d' "$DEFCONFIG"
           
           cat >> "$DEFCONFIG" << 'EOF'
@@ -274,39 +269,31 @@ jobs:
           CONFIG_KSU_MANUAL_HOOK=y
           # CONFIG_KSU_KPROBES_HOOK is not set
 
-          # ==========================================
-          # 1. OverlayFS & Loop for Modules
+          # امکانات حیاتی برای ذخیره سازی و ماژول‌ها
           CONFIG_OVERLAY_FS=y
           CONFIG_BLK_DEV_LOOP=y
           CONFIG_BLK_DEV_LOOP_MIN_COUNT=16
-
-          # 2. Namespaces for Root App Persistence
           CONFIG_NAMESPACES=y
           CONFIG_USER_NS=y
           CONFIG_IPC_NS=y
           CONFIG_UTS_NS=y
           CONFIG_PID_NS=y
           CONFIG_MULTIUSER=y
-
-          # 3. TMPFS & Config Reader
           CONFIG_TMPFS=y
           CONFIG_TMPFS_POSIX_ACL=y
           CONFIG_IKCONFIG=y
           CONFIG_IKCONFIG_PROC=y
-          
-          # ==========================================
-          # 4. DISABLE SAMSUNG KNOX / DEFEX (CRITICAL FOR KSUD)
-          # ==========================================
+
+          # خاموش کردن نگهبان‌های سامسونگ
           # CONFIG_SECURITY_DEFEX is not set
           # CONFIG_SECURITY_DSMS is not set
           # CONFIG_TIMA is not set
           # CONFIG_KNOX_KAP is not set
           # CONFIG_RKP_KDP is not set
-          # CONFIG_RKP_CFP is not set
           # CONFIG_SAMSUNG_FREECESS is not set
           EOF
           echo "configs added"
-          tail -35 "$DEFCONFIG"
+          tail -30 "$DEFCONFIG"
 
 
 
