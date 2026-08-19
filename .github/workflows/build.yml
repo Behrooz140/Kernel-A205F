@@ -33,18 +33,16 @@ jobs:
           set -e
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
 
-      - name: Inspect ksud/prctl integration
+      - name: Verify hook signatures
         run: |
-          echo "---ksud.h---"
-          cat drivers/kernelsu/runtime/ksud.h 2>/dev/null
-          echo "---ksud_integration.c full---"
-          cat drivers/kernelsu/runtime/ksud_integration.c 2>/dev/null
-          echo "---ksud_boot.h---"
-          cat drivers/kernelsu/runtime/ksud_boot.h 2>/dev/null
-          echo "---grep prctl usage across kernelsu---"
-          grep -rn "prctl" drivers/kernelsu/ 2>/dev/null
-          echo "---core/init.c (look for hook registration)---"
-          cat drivers/kernelsu/core/init.c 2>/dev/null | head -150
+          echo "---grep real definitions---"
+          grep -rn "^int ksu_handle\|^void ksu_handle\|^bool ksu_handle\|^__attribute__.*ksu_handle" drivers/kernelsu/ 2>/dev/null
+          echo "---does ksu_handle_stat exist anywhere?---"
+          grep -rn "ksu_handle_stat\b" drivers/kernelsu/ 2>/dev/null || echo "NOT FOUND - undefined symbol risk"
+          echo "---feature/sucompat.c (real API for su/root hiding hooks)---"
+          cat drivers/kernelsu/feature/sucompat.c 2>/dev/null
+          echo "---supercall/dispatch.c head---"
+          cat drivers/kernelsu/supercall/dispatch.c 2>/dev/null | head -80
 
 
       - name: Fix KernelSU for old GCC 4.9 and kernel 4.4
