@@ -33,6 +33,22 @@ jobs:
           set -e
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
 
+      - name: Inspect KernelSU source
+        run: |
+          echo "== KernelSU-Next dir structure =="
+          find KernelSU-Next -maxdepth 3 -type f 2>/dev/null | grep -iE "selinux|sepolicy|kernel_compat" || echo "no selinux/sepolicy/kernel_compat files in KernelSU-Next"
+          echo ""
+          echo "== drivers/kernelsu dir structure =="
+          find drivers/kernelsu -type f \( -name "*.c" -o -name "*.h" \) 2>/dev/null | grep -iE "selinux|sepolicy|kernel_compat" || echo "no selinux/sepolicy/kernel_compat files in drivers/kernelsu"
+          echo ""
+          echo "== drivers/kernelsu Kbuild content =="
+          cat drivers/kernelsu/Kbuild 2>/dev/null || echo "no Kbuild found"
+          echo ""
+          echo "== top-level Makefile / drivers/Makefile reference to kernelsu =="
+          grep -rn "kernelsu" Makefile drivers/Makefile 2>/dev/null || echo "no reference found"
+          echo ""
+          echo "== full file list of drivers/kernelsu (for manual review) =="
+          find drivers/kernelsu -type f 2>/dev/null
 
       - name: Fix KernelSU for old GCC 4.9 and kernel 4.4
         run: |
