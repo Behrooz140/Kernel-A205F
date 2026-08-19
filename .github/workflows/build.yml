@@ -33,19 +33,16 @@ jobs:
           set -e
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
 
-      - name: Inspect core/init.c and supercall entry point
+      - name: Inspect LSM hook registration and supercall entry
         run: |
-          echo "---core/init.c full---"
-          cat drivers/kernelsu/core/init.c 2>/dev/null
-          echo "---supercall/internal.h---"
-          cat drivers/kernelsu/supercall/internal.h 2>/dev/null
-          echo "---grep for supercall dispatch call sites (who calls ksu_handle_supercall or similar)---"
-          grep -rn "ksu_handle_supercall\|supercall_dispatch\|ksu_supercall" drivers/kernelsu/ 2>/dev/null
-          echo "---grep for on_boot_completed callers---"
-          grep -rn "on_boot_completed(" drivers/kernelsu/ 2>/dev/null
-          echo "---grep for track_throne definition---"
-          grep -rn "track_throne" drivers/kernelsu/ 2>/dev/null
-
+          echo "---lsm_hooks.c full---"
+          cat drivers/kernelsu/hook/lsm_hooks.c 2>/dev/null
+          echo "---supercall.c full---"
+          cat drivers/kernelsu/supercall/supercall.c 2>/dev/null
+          echo "---check kernel LSM stacking support---"
+          grep -rn "security_add_hooks\|CONFIG_SECURITY_SELINUX_STACKED\|CONFIG_LSM\b\|DEFINE_LSM" security/selinux/hooks.c include/linux/lsm_hooks.h 2>/dev/null | head -20
+          echo "---kernel version LSM check---"
+          grep -n "LSM_COUNT\|security_hook_heads\|struct security_hook_list" include/linux/lsm_hooks.h 2>/dev/null | head -10
 
       - name: Fix KernelSU for old GCC 4.9 and kernel 4.4
         run: |
